@@ -1,0 +1,16 @@
+# User-defined
+/api_keys.json
+notes_screenshots/
+*.log
+.env
+
+# Python cache
+__pycache__/
+src/api_keys.json
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+*.whl
+.vscode/*
