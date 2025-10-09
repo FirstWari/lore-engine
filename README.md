@@ -357,7 +357,7 @@ Found a bug? Have a feature idea? PRs welcome!
 
 ## License
 
-MIT License - feel free to fork, modify, and use for whatever you need.
+MPL-2.0 License. Refer to LICENSE.MD for more details.
 
 ## Acknowledgments
 
