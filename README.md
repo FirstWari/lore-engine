@@ -35,6 +35,8 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
   <em>Interactive mode makes it dead simple to use</em>
 </p>
 
+**Point it at a folder of PDFs or .srt files (with or without video), and let it work its magic.**
+
 ## Features That Actually Matter
 
 ### Core Capabilities
