@@ -40,10 +40,9 @@ dependencies = [
     "ImageHash>=4.3.2",
     "video-reader-rs>=0.2.10",
     "Pillow>=11.3.0",
-    "protobuf>=6.32.1",
     "pypdfium2>=4.30.0",
     "srt>=3.5.3",
-    "google-genai>=1.41.0",
+    "google-generativeai",
     "python-dotenv>=1.1.1",
 ]
 

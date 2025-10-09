@@ -20,18 +20,19 @@ Lectures have the perfect amount of explanation—not a sparse slide deck, not a
 
 ## The Solution
 
-The Lore Engine is a multimodal AI pipeline that transforms educational content—PDFs, videos, handwritten notes, and transcripts—into comprehensive, searchable markdown notes with explanations, screenshots, diagrams, and LaTeX math support.
+The Lore Engine is a multimodal AI pipeline that transforms educational content—PDFs, videos, handwritten notes, and transcripts—into comprehensive, searchable markdown notes with explanations, screenshots and diagrams.
 
 Think of it as a knowledge extraction engine: you feed it raw educational content, and it gives you organized, comprehensive "lore dumps."
 
 **Before:** 10 hours of lecture watching  
 **After:** 2 hours of focused reading (with full details and better explanations)
 
-<!-- GIF DEMO PLACEHOLDER -->
+### See It In Action
+
 <p align="center">
-  <img src="docs/demo.gif" alt="The Lore Engine Demo" width="800">
+  <img src="assets/cli.gif" alt="Interactive CLI Demo" width="800">
   <br>
-  <em>Extracting the lore from hours of content</em>
+  <em>Interactive mode makes it dead simple to use</em>
 </p>
 
 ## Features That Actually Matter
@@ -46,7 +47,6 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 
 - **📸 Smart Screenshots**: Automatically captures key moments, not redundant frames
 - **📊 Mermaid Diagrams**: Auto-generates flowcharts and architecture diagrams
-- **🧮 LaTeX Math**: Proper equation formatting for STEM content
 - **🎯 Perceptual Deduplication**: Hash-based frame selection (no more 50 identical slides)
 - **🤖 Context-Aware Explanations**: AI fills in the gaps between what's shown and what's implied
 
@@ -66,13 +66,19 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 
 ## Real Examples
 
+<p align="center">
+  <img src="assets/output.gif" alt="Example Output" width="800">
+  <br>
+  <em>Clean, comprehensive markdown notes with screenshots and diagrams</em>
+</p>
+
 ## Quick Start
 
 ### 1. Install Dependencies
 
-See <https://docs.astral.sh/uv/getting-started/installation/>
+**Recommended: Using uv (fastest)**
 
-**Modern method with uv (fastest, recommended):**
+First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if you haven't already.
 
 ```bash
 git clone https://github.com/Slydite/lore-engine.git
@@ -80,9 +86,11 @@ cd lore-engine
 uv sync
 ```
 
-**Or with pip:**
+**Alternative: Using pip**
 
 ```bash
+git clone https://github.com/Slydite/lore-engine.git
+cd lore-engine
 pip install -e .
 ```
 
@@ -96,11 +104,7 @@ uv sync --all-extras
 pip install -e ".[dev]"
 ```
 
-**Legacy method:**
-
-```bash
-pip install -r requirements.txt
-```
+> **Note:** This project uses `google-generativeai` (legacy SDK). We may migrate to the new `google-genai` SDK in the future. See [migration guide](https://ai.google.dev/gemini-api/docs/migrate#python) for differences.
 
 **Note:** On Windows, you may need to install ffmpeg separately:
 
@@ -140,6 +144,10 @@ The engine uses numbered keys (`GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`, etc.) in 
 **Interactive Mode (easiest):**
 
 ```bash
+# With uv (recommended)
+uv run python src/main.py
+
+# Or with regular Python (if using pip install)
 cd src
 python main.py
 ```
@@ -147,13 +155,21 @@ python main.py
 **Single File:**
 
 ```bash
-python main.py --path "/path/to/lecture.mp4"
+# With uv
+uv run python src/main.py --path "/path/to/lecture.mp4"
+
+# Or with regular Python
+python src/main.py --path "/path/to/lecture.mp4"
 ```
 
 **Batch Process a Folder:**
 
 ```bash
-python main.py --batch-path "/path/to/lectures/"
+# With uv
+uv run python src/main.py --batch-path "/path/to/lectures/"
+
+# Or with regular Python
+python src/main.py --batch-path "/path/to/lectures/"
 ```
 
 The tool will:
@@ -189,7 +205,6 @@ The tool will:
 
 - Automatic Mermaid diagram syntax correction
 - Screenshot placeholder replacement with relative paths
-- LaTeX math preservation
 - Markdown cleaning and formatting
 
 ### Performance Characteristics

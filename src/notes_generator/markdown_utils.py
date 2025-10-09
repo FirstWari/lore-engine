@@ -19,6 +19,11 @@ class MarkdownUtils:
         else:
             logger.debug("No <REFINEDNOTES> tags found, using full response")
         
+        # --- Collapse excessive whitespace (model sometimes generates whitespace loops) ---
+        # Replace 3+ consecutive newlines with exactly 2 newlines (one blank line)
+        text = re.sub(r'\n\n\n+', '\n\n', text)
+        logger.debug("Collapsed excessive blank lines")
+        
         # --- Start: Mermaid Parentheses Cleaning ---
         def fix_mermaid_diagram(match):
             """
