@@ -35,8 +35,8 @@ MODES = {
     },
     5: {
         'id': 'handwritten',
-        'label': 'Handwritten notes (images)',
-        'file_extensions': ['.jpg', '.jpeg', '.png']
+        'label': 'Handwritten notes (scanned PDF)',
+        'file_extensions': ['.pdf']
     }
 }
 

@@ -8,6 +8,7 @@ from PIL import Image
 # sys.path manipulation removed - use proper Python package imports
 
 from notes_generator.processors.base_processor import BaseNotesProcessor
+from notes_generator.constants import VIDEO_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +46,7 @@ class TranscriptNotesProcessor(BaseNotesProcessor):
         # Determine if we're processing a video file or an SRT file
         file_ext = os.path.splitext(file_path)[1].lower()
         
-        # Video file extensions (imported from main)
-        video_extensions = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.webm']
-        
-        if file_ext in video_extensions:
+        if file_ext in VIDEO_EXTENSIONS:
             # Processing a video file - find matching SRT
             self.video_path = file_path
             self.srt_path = os.path.splitext(file_path)[0] + '.srt'
