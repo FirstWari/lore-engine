@@ -8,13 +8,11 @@
 
 You know the drill:
 
-- **PDFs:** Your professor's 200-slide deck has zero explanations. Just bullet points and diagrams. What do they even mean?
-- **Handwritten notes:** That scan from 2018 looks like a seismograph during an earthquake. Good luck deciphering it.
+- **PDFs:** Your professor's 200-slide PDF, filled with nothing but bullet points, vague diagrams, and your own shattered hopes.
+- **Handwritten notes:** That one dude's notes from 2018, scanned so badly they look like a seismograph reading of a metal concert. Good luck deciphering it 3 hours before finals.
 - **Videos:** You're rewatching a 2-hour lecture for the fifth time trying to find *that one explanation*
 - **Time sink:** "Let me just scrub through this 40-hour course real quick..." (Narrator: *It was not quick.*)
-- **Comprehension gap:** Slides are too sparse, textbooks are too dense, videos are too slow
-- You read at 500 WPM but watching at 4x speed still feels slow
-- Videos are great for learning but *terrible* for reference
+- **Comprehension gap:** Slides are too sparse, textbooks are too dense, videos are too slow. Handwriting too alien.
 
 **What if you could transform all of it into comprehensive, readable notes?**
 
@@ -41,9 +39,8 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 ### Core Capabilities
 
 - **📄 PDF → Detailed Notes**: Turn sparse slide decks into comprehensive explanations
-- **✍️ Handwriting → Text**: OCR and explain your professor's illegible scrawls  
-- **🎥 Video → Searchable Notes**: Extract, explain, and organize lecture content
-- **📝 Transcripts → Enhanced Notes**: Take SRT files and add visual context + better formatting
+- **✍️ Handwriting → Detailed Notes**: OCR and explain your professor's illegible scrawls  
+- **📝 Transcripts + Video → Detailed Notes**: Take SRT files and add visual context + better formatting
 
 ### Intelligence
 
@@ -55,7 +52,7 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 
 ### Performance
 
-- **🚀 Blazing Fast**: Process 10 hours of video in 40 minutes (15x real-time speed)
+- **🚀 Blazing Fast**: Process 10 hours of video in 40 minutes (15x real-time speed with 2 keys). Then consume in the next 4 hours.
 - **⚡ Parallel Processing**: Multi-process pipeline + round-robin API keys = scales linearly
 - **💾 Memory Efficient**: Doesn't load entire videos into RAM
 - **🆓 Free-Tier Friendly**: Optimized for Gemini's generous free tier
@@ -69,82 +66,11 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 
 ## Real Examples
 
-> **Note:** Example outputs coming soon! Processing lectures from MIT OCW, 3Blue1Brown, and system design channels.
-
-### Use Cases
-
-**📊 Sparse Slide Deck → Detailed Explanations**
-
-- Input: Professor's 50-slide PDF with bullet points
-- Output: Comprehensive notes explaining each concept, with diagrams and examples
-- Time: 2 minutes to process, 15 minutes to read vs. 1 hour lecture
-
-**🎥 Long Lecture → Searchable Reference**
-
-- Input: 3-hour MIT OCW video on algorithms
-- Output: Timestamped notes with screenshots, code examples, and complexity analysis
-- Time: 18 minutes to process, 45 minutes to read vs. 3 hours watching
-
-**✍️ Handwritten Notes → Clean Markdown**
-
-- Input: Scanned pages of messy calculus derivations
-- Output: LaTeX-formatted proofs with step-by-step explanations
-- Time: 1 minute per page, instantly searchable
-
-<!-- EXAMPLES SECTION - TO BE FILLED -->
-
-<details>
-<summary><b>📖 Example Output Structure (click to expand)</b></summary>
-
-```markdown
-# Distributed Systems - Part 1
-
-## Consistent Hashing: An Introduction
-
-### Overview
-Consistent Hashing addresses the challenges of efficiently 
-distributing data across a dynamic set of resources...
-
-![Screenshot at 00:01:06](notes_screenshots/frame_00-01-06.jpg)
-
-### The Problem with Simple Modulo Hashing
-
-When using `h(R) % N`, adding a new server causes...
-
-**Example calculations:**
-- Request R1 (ID=10): `h(10) % 4 = 3` → Server S3
-- Request R2 (ID=20): `h(20) % 4 = 3` → Server S3
-- Request R3 (ID=35): `h(35) % 4 = 0` → Server S0
-
-![Screenshot at 00:04:27](notes_screenshots/frame_00-04-27.jpg)
-
-### Mathematical Analysis
-
-The expected load per server is $\frac{X}{N}$ where:
-- $X$ = total number of requests
-- $N$ = number of servers
-
-$$
-\text{Load Factor} = \frac{1}{N}
-$$
-
-### System Architecture
-
-```mermaid
-graph TD
-    Client[Client] -->|Request| LoadBalancer[Load Balancer]
-    LoadBalancer -->|Hash: h(R) % N| Server1[Server 1]
-    LoadBalancer --> Server2[Server 2]
-    LoadBalancer --> Server3[Server 3]
-```
-
-```
-
-</details>
-
 ## Quick Start
 
 ### 1. Install Dependencies
+
+See <https://docs.astral.sh/uv/getting-started/installation/>
 
 **Modern method with uv (fastest, recommended):**
 
@@ -187,7 +113,7 @@ choco install ffmpeg
 
 ### 2. Get Your (Free) Gemini API Key
 
-1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+1. Go to [Google AI Studio](https://aistudio.google.com/)
 2. Click "Get API Key"
 3. Copy your key
 
@@ -208,8 +134,6 @@ GEMINI_API_KEY_3=your_third_key_here
 ```
 
 The engine uses numbered keys (`GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`, etc.) in round-robin fashion. More keys = faster processing!
-
-**Alternative:** You can also set keys as environment variables or use a single comma-separated `GEMINI_API_KEY` variable.
 
 ### 4. Run It
 
@@ -241,26 +165,13 @@ The tool will:
 
 ## How It Works (For The Nerds 🤓)
 
-### The Pipeline
+**1. Video or PDF Processing**
 
-```
-Video Input → Frame Extraction → Perceptual Hashing → Diversity Selection
-     ↓              ↓                    ↓                    ↓
-  Transcript  →  Chunking  →  Multimodal AI  →  Markdown Notes
-     ↓              ↓                    ↓                    ↓
-Screenshots  ←  Timestamp Sync  ←  Diagram Gen  ←  LaTeX Math
-```
-
-### For the Nerds
-
-**1. Video Processing (The Fast Part)**
-
-- Uses `video_reader-rs` (Rust FFmpeg bindings) instead of OpenCV
-- 10,000x faster than naive approaches
+- Uses `video_reader-rs` (Rust FFmpeg bindings) instead of OpenCV for frame extraction
 - Batch frame extraction via `get_batch()` API
 - Memory efficient: only loads requested frames
 
-**2. Intelligent Frame Selection**
+**2. Intelligent Frame Selection for Videos**
 
 - Perceptual hashing (pHash) with 8x8 DCT
 - Temporal diversity scoring to avoid redundant frames
@@ -292,7 +203,7 @@ Screenshots  ←  Timestamp Sync  ←  Diagram Gen  ←  LaTeX Math
 | Memory usage | <500MB | Excluding video file |
 
 **Bottleneck:** LLM API calls (expected and unavoidable)  
-**Not the bottleneck:** Frame extraction (thanks, Rust!)
+**Not the bottleneck:** Frame extraction
 
 ## Configuration
 
@@ -318,22 +229,22 @@ Edit `config.json` to customize:
 ## FAQ
 
 **Q: Does this work with non-English content?**  
-A: Yes! Gemini supports 100+ languages. Just make sure your SRT files are in the correct encoding (UTF-8). You will have to change a small line in the file src/prompt_library and replace english with your desired language.
+A: Yes! Gemini supports 100+ languages. Just make sure your SRT files are in the correct encoding (UTF-8). You will have to modify the base prompt to include your language.
 
 **Q: Can I use this for copyrighted content?**  
-A: The tool processes content locally and sends frames to Gemini's API. Follow your institution's fair use policies for educational content. Notes are derived content so should be fine :P
+A: The tool processes content locally and sends frames to Gemini's API. Follow your institution's fair use policies for educational content. Notes are derived content so should be fine :P but I am no legal expert.
 
-**Q: Why Gemini and not GPT-4/Claude?**  
+**Q: Why Gemini and not GPT-5/Claude?**  
 A: Gemini 2.5 has native multimodal support, generous free tier (60 RPM), and excellent performance on educational content. But the architecture is LLM-agnostic and model agnostic support coming soon!
 
 **Q: How much does this cost?**  
 A: **Free** if you stay within Gemini's limits. Heavy users might hit paid tiers.
 
 **Q: Can I run this on my own LLM?**  
-A: Not yet, but the architecture supports it. PRs welcome for openrouter(and alternatives) integration.
+A: Not yet, but the architecture supports it. PRs welcome for OpenRouter(and alternatives) integration.
 
 **Q: What about privacy?**  
-A: Your videos are processed locally. Only extracted frames and transcripts are sent to Gemini's API.
+A: The tool runs locally, however all content is sent to the Gemini API and Gemini Privacy Policy applies.
 
 ## Roadmap
 
@@ -354,22 +265,5 @@ Found a bug? Have a feature idea? PRs welcome!
 - LaTeX rendering improvements
 - Local LLM integration
 - UI/UX enhancements
-
-## License
-
-MPL-2.0 License. Refer to LICENSE.MD for more details.
-
-## Acknowledgments
-
-Built with:
-
-- [Google Gemini API](https://ai.google.dev/) - The AI brain
-- [video_reader-rs](https://github.com/pythonlessons/video_reader-rs) - Rust-powered video decoding
-- [imagehash](https://github.com/JohannesBuchner/imagehash) - Perceptual hashing
-- [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) - Fast PDF rendering
-
----
-
-**Made with ❤️ for students who need the lore, not the lecture**
 
 *Star this repo if it extracted the lore from your professor's cryptic slides* ⭐
