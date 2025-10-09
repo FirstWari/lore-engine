@@ -149,7 +149,7 @@ graph TD
 **Modern method with uv (fastest, recommended):**
 
 ```bash
-git clone https://github.com/yourusername/lore-engine.git
+git clone https://github.com/Slydite/lore-engine.git
 cd lore-engine
 uv sync
 ```

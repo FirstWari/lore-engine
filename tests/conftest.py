@@ -1,5 +1,5 @@
 """
-Pytest configuration and shared fixtures for GeminiNotes tests.
+Pytest configuration and shared fixtures for LoreEngine tests.
 
 This file contains common fixtures and configuration that can be
 shared across all test files.

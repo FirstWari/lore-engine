@@ -1,6 +1,6 @@
-# GeminiNotes Test Suite
+# LoreEngine Test Suite
 
-This directory contains unit tests for the GeminiNotes project.
+This directory contains unit tests for the LoreEngine project.
 
 ## Running Tests
 

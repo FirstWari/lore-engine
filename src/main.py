@@ -63,7 +63,6 @@ def main():
     if not (args.defaults or args.yes):
         config = get_streamlined_user_input()
         # Convert config dict to args-like object for compatibility
-        # TODO: Refactor main.py to use config dict directly
         args.input = config['input_path']  # Use the original input path
         args.output = config['output_dir']
         # Store additional config for later use
