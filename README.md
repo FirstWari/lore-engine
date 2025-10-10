@@ -4,6 +4,16 @@
 
 **The Lore Engine extracts it.**
 
+## What You Get
+
+<p align="center">
+  <img src="assets/output.gif" alt="Example Output" width="800">
+  <br>
+  <em>Clean, comprehensive markdown notes with screenshots and diagrams</em>
+</p>
+
+**See a full example:** [MIT Cognitive Robotics Lecture Notes](assets/refined_Advanced_2._Semantic_Localization-(720p30)_part1.md) (generated from a 1-hour video)
+
 ## The Problem
 
 You know the drill:
@@ -65,14 +75,6 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 - Memory efficient: No whole-video allocation like Decord
 - Scales linearly: 2 API keys = 30x real-time, 10 keys = 150x real-time
 - CPU usage: ~3% (I/O bound, not compute bound)
-
-## Real Examples
-
-<p align="center">
-  <img src="assets/output.gif" alt="Example Output" width="800">
-  <br>
-  <em>Clean, comprehensive markdown notes with screenshots and diagrams</em>
-</p>
 
 ## Quick Start
 
