@@ -1,6 +1,5 @@
 # User-defined
 /api_keys.json
-notes_screenshots/
 *.log
 .env
 
