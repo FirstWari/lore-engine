@@ -27,9 +27,11 @@ OUTPUT REQUIREMENTS:
    
    Example structure:
    <REFINEDNOTES>
-   # Lecture Title
+    Some Content.................
    
-   Your markdown content here...
+   # Headings
+   # Subheadings
+   Some Content.................
    </REFINEDNOTES>
 
 2. **Markdown Formatting:**
@@ -48,9 +50,19 @@ OUTPUT REQUIREMENTS:
 
 4. **Continuity:**
    - This is a script-based system, not a chat session
-   - Continue seamlessly from previously provided markdown output
+   - Continue seamlessly from previously provided markdown output, do not use any tags to mark continuity. Just continue the notes from the previous chunk.
    - Do NOT repeat content that has already been covered
    - Ensure smooth flow and logical progression of topics
+
+5. **Code Block Hygiene (CRITICAL):**
+   - ALWAYS close code blocks with matching ``` fences
+   - Each code block must have: opening ``` (with language), code content, closing ```
+   - If a chunk ends mid-code-block, CLOSE IT before </REFINEDNOTES>
+   - Unclosed code fences break all subsequent rendering
+   - Format: ```language\ncode\n```
+   - Use code blocks ONLY for code examples, not for other content
+   
+6. The previous chunk might have formatting issues related to non standard markdown, ignore them and continue your work with proper formatting.
 """
 
 # ============================================================================
@@ -90,7 +102,6 @@ Analyze the provided handwritten note images. Handwritten notes are typically:
 - May contain non-English words or mixed languages
 - Variable quality - from well-organized to chaotic
 - Personal style - may use arrows, symbols, or diagrams
-
 {INTELLIGENT_INFERENCE}
 
 HANDWRITTEN-SPECIFIC PROCESSING:
@@ -99,7 +110,7 @@ HANDWRITTEN-SPECIFIC PROCESSING:
 - Improve choppy or poorly written language
 
 Example of language improvement:
-- Original: "All rows delete at once. Faster process."
+- Original: "All rows delete at once => Faster process."
 - Improved: "Deleting all rows at once is a faster process than individual deletions."
 
 HANDLING QUALITY ISSUES:
@@ -125,6 +136,7 @@ TRANSCRIPT-SPECIFIC PROCESSING:
 - Clean up grammatical errors and informal speech patterns
 - Ignore filler words ("um", "uh", "like", "you know") and conversational fluff
 - Convert spoken explanations into formal written prose
+- You may need to complete the content using your own knowledge. A professor might have just explained the final equation, but you may need to provide the proof (not always, understand using context if you need to)
 
 CONTINUITY:
 
@@ -482,29 +494,24 @@ Or for PDFs:
 """,
 
     "latex_support": """
-MATHEMATICAL NOTATION:
+MATHEMATICAL NOTATION: You must always use latex for mathematical content, do not use any other formatting.
 
-Use LaTeX formatting for all mathematical content:
+Use LaTeX formatting for all mathematical content, do not use latex inside mermaid diagrams or code blocks:
 
-INLINE MATH (single dollar signs):
-- Variables: `$x$`, `$\\alpha$`, `$\\beta$`
-- Simple expressions: `$E = mc^2$`, `$a^2 + b^2 = c^2$`
-- Subscripts/superscripts: `$x_{i}$`, `$2^n$`
+INLINE MATH (single dollar signs) works directly in markdown:
+    Conditional probability of event A given B is $P(A|B)$
 
-BLOCK EQUATIONS (double dollar signs):
-- Complex equations: `$$\\int_{a}^{b} f(x) \\, dx$$`
-- Multiple lines: `$$\\begin{align} ... \\end{align}$$`
-- Matrices: `$$\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$$`
+Use block equations for complex sets of equations:
+    $$
+    \begin{align}
+    x &= 1 \\
+    y &= 2
+    \end{align}
+    $$
 
-FORMATTING RULES:
-- Properly escape backslashes in LaTeX commands
-- Use proper spacing: `\\,` for thin space, `\\;` for medium
-- For fractions: `$\\frac{numerator}{denominator}$`
-- For integrals, sums: `$\\int$`, `$\\sum$`, `$\\prod$`
-- Greek letters: `$\\alpha$`, `$\\beta$`, `$\\gamma$`, etc.
 
 EXAMPLE:
-The quadratic formula is: `$$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$`
+The quadratic formula is: $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$
 """
 }
 

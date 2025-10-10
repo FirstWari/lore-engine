@@ -8,6 +8,41 @@ class MarkdownUtils:
     def __init__(self):
         pass
 
+    def _fix_unclosed_code_blocks(self, text: str) -> str:
+        """
+        Detects and fixes unclosed code blocks that would break subsequent chunk rendering.
+        
+        An unclosed code fence (```) causes all following content to be interpreted as code,
+        breaking markdown rendering. This is critical for chunked LLM processing.
+        
+        Returns:
+            Text with balanced code fences (closes any unclosed blocks)
+        """
+        # Count opening code fences (```)
+        # Match any line that starts with ``` (possibly with language identifier)
+        opening_fences = re.findall(r'^```\w*', text, re.MULTILINE)
+        
+        # Count closing code fences (standalone ``` on a line)
+        closing_fences = re.findall(r'^```\s*$', text, re.MULTILINE)
+        
+        num_opening = len(opening_fences)
+        num_closing = len(closing_fences)
+        
+        # If unbalanced, we have unclosed code blocks
+        if num_opening > num_closing:
+            num_unclosed = num_opening - num_closing
+            logger.warning(f"Detected {num_unclosed} unclosed code block(s). Auto-closing to prevent rendering issues.")
+            
+            # Append closing fences to fix the issue
+            # Add them at the end with newlines for proper formatting
+            text = text.rstrip() + '\n' + ('```\n' * num_unclosed)
+            
+        elif num_opening < num_closing:
+            # This shouldn't happen in normal cases, but log it
+            logger.warning(f"Detected extra closing code fences ({num_closing} closings vs {num_opening} openings). This may indicate a parsing issue.")
+        
+        return text
+
     def clean_markdown(self, text: str) -> str:
         """Cleans up common Markdown issues, fixes list indentation, and replaces invalid parentheses in mermaid diagrams."""
         
@@ -18,6 +53,9 @@ class MarkdownUtils:
             logger.debug("Extracted notes from <REFINEDNOTES> tags")
         else:
             logger.debug("No <REFINEDNOTES> tags found, using full response")
+        
+        # --- Fix unclosed code blocks (CRITICAL for chunked processing) ---
+        text = self._fix_unclosed_code_blocks(text)
         
         # --- Collapse excessive whitespace (model sometimes generates whitespace loops) ---
         # Replace 3+ consecutive newlines with exactly 2 newlines (one blank line)
