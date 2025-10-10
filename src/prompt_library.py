@@ -366,7 +366,27 @@ USE TABLES WHEN APPROPRIATE:
 
 Create tables for comparisons, schemas, models, and structured data (even if the original content doesn't have them, add them when they enhance understanding—use judiciously).
 
-**Important:** Do NOT wrap tables with ```markdown``` code blocks; they will be rendered directly.
+**CRITICAL TABLE RULES**:
+1. Do NOT wrap tables with ```markdown``` code blocks; they will be rendered directly
+2. Keep table cells CONCISE - each cell should be 1-3 lines maximum
+3. If content is too long for a table cell, use a bulleted list AFTER the table instead
+4. NEVER put paragraphs, diagrams, or large blocks of text inside table cells
+5. After writing a table, ALWAYS close it before continuing with other content
+6. Use proper table formatting: each row on a new line with | separators
+
+**Good Example**:
+| Observation Type      | Potential Errors                    |
+| --------------------- | ----------------------------------- |
+| Metric Localization   | Sensor noise, calibration errors    |
+| Object Detection      | Misclassification, missed detections|
+| Semantic Mapping      | False positives, occlusions         |
+
+**Bad Example (DO NOT DO THIS)**:
+| Observation Type | Potential Errors |
+| ---------------- | ---------------- |
+| Type 1           | [massive paragraph with hundreds of words that should be outside the table] |
+
+If you have detailed explanations, put them in paragraphs or bullet lists BELOW the table, not inside cells.
 
 Example table format:
 | Syntax      | Description |
