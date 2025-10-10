@@ -494,7 +494,8 @@ Or for PDFs:
 """,
 
     "latex_support": """
-MATHEMATICAL NOTATION: You must always use latex for mathematical content, do not use any other formatting.
+MATHEMATICAL NOTATION: You must always use latex for mathematical content. Do not use `Y(x)` for math, use $Y(x)$ instead.
+`Content` is reserved for text, do not use it for math.
 
 Use LaTeX formatting for all mathematical content, do not use latex inside mermaid diagrams or code blocks:
 

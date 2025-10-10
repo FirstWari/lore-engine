@@ -1,7 +1,13 @@
+# Suppress third-party warnings BEFORE any imports
+import os
+os.environ['GRPC_VERBOSITY'] = 'ERROR'
+os.environ['GRPC_TRACE'] = ''
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow if used by dependencies
+
+import sys
 import argparse
 import json
 import logging
-import os
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 

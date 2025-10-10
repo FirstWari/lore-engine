@@ -5,6 +5,8 @@ import re
 import io
 import logging
 import os
+import sys
+from contextlib import contextmanager
 from typing import List, Dict, Tuple, Optional
 
 from notes_generator.constants import (
@@ -29,6 +31,31 @@ except ImportError:
     logging.getLogger(__name__).warning("video-reader-rs library not found. pip install video-reader-rs")
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def suppress_stderr():
+    """
+    Context manager to suppress stderr at the file descriptor level.
+    
+    Useful for suppressing noisy FFmpeg warnings from video_reader-rs (Rust library)
+    that writes directly to stderr bypassing Python's logging system.
+    """
+    # Save original stderr file descriptor
+    stderr_fd = sys.stderr.fileno()
+    stderr_backup_fd = os.dup(stderr_fd)
+    
+    try:
+        # Redirect stderr to devnull
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, stderr_fd)
+        os.close(devnull)
+        yield
+    finally:
+        # Restore original stderr
+        os.dup2(stderr_backup_fd, stderr_fd)
+        os.close(stderr_backup_fd)
+
 
 class ContentExtractor:
     def __init__(self):
@@ -63,7 +90,10 @@ class ContentExtractor:
             return {}, global_seen_hashes
             
         try:
-            vr = PyVideoReader(video_path, threads=0)  # threads=0 means auto (optimal)
+            # Suppress FFmpeg stderr output (noisy warnings about frame properties)
+            # FFmpeg writes directly to stderr, bypassing Python logging
+            with suppress_stderr():
+                vr = PyVideoReader(video_path, threads=0)  # threads=0 means auto (optimal)
         except Exception as e:
             logger.error(f"Could not open video file with video_reader-rs: {video_path}. Error: {e}")
             return {}, global_seen_hashes
@@ -91,7 +121,8 @@ class ContentExtractor:
             if duration_ms <= 0 or start_frame_idx >= end_frame_idx:
                 # Edge case: no duration, just sample start frame
                 try:
-                    frame = vr[start_frame_idx]  # Direct indexing
+                    with suppress_stderr():
+                        frame = vr[start_frame_idx]  # Direct indexing
                     pil_image = Image.fromarray(frame)
                     current_hash = imagehash.phash(pil_image, hash_size=PHASH_SIZE, highfreq_factor=PHASH_HIGHFREQ_FACTOR)
                     if not any(current_hash - seen_hash <= similarity_threshold for seen_hash in global_seen_hashes):
@@ -118,7 +149,8 @@ class ContentExtractor:
                 # This library has excellent memory management and won't crash on large videos
                 if frame_indices:
                     try:
-                        frames_batch = vr.get_batch(frame_indices)  # Returns numpy array (N, H, W, C)
+                        with suppress_stderr():
+                            frames_batch = vr.get_batch(frame_indices)  # Returns numpy array (N, H, W, C)
                         
                         # Process each frame
                         for i, frame_idx in enumerate(frame_indices):

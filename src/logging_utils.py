@@ -3,6 +3,8 @@ Centralized logging configuration for consistent setup across main process and w
 """
 import logging
 import sys
+import os
+import warnings
 
 
 def setup_unicode_logging(log_file: str = "notesmaker.log", level: int = logging.INFO):
@@ -46,4 +48,41 @@ def setup_unicode_logging(log_file: str = "notesmaker.log", level: int = logging
         ],
         force=True
     )
+    
+    # Suppress noisy third-party library warnings
+    _suppress_third_party_warnings()
+
+
+def _suppress_third_party_warnings():
+    """
+    Suppress verbose warnings from third-party libraries that clutter the logs.
+    
+    Suppresses:
+    - FFmpeg/video-reader-rs warnings (handled via file descriptor redirection in content_extractor.py)
+    - gRPC ALTS credentials warnings (Google API client)
+    - absl logging warnings
+    """
+    # Suppress absl logging warnings (used by Google libraries)
+    # Must import and configure absl BEFORE any Google library imports
+    try:
+        # Prevent absl from printing to stderr
+        import absl.logging
+        # Use Python logging instead of absl's own logging
+        absl.logging.use_python_logging()
+        # Set to ERROR level to suppress INFO/WARNING
+        absl_logger = logging.getLogger('absl')
+        absl_logger.setLevel(logging.ERROR)
+    except ImportError:
+        pass
+    
+    # Set gRPC logger to ERROR level
+    logging.getLogger('grpc').setLevel(logging.ERROR)
+    logging.getLogger('google').setLevel(logging.ERROR)
+    logging.getLogger('google.api_core').setLevel(logging.ERROR)
+    logging.getLogger('google.auth').setLevel(logging.ERROR)
+    
+    # Suppress general Python warnings
+    warnings.filterwarnings('ignore', category=DeprecationWarning)
+    warnings.filterwarnings('ignore', category=FutureWarning)
+    warnings.filterwarnings('ignore', category=UserWarning)
 
