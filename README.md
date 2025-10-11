@@ -4,16 +4,6 @@
 
 **The Lore Engine extracts it.**
 
-## What You Get
-
-<p align="center">
-  <img src="assets/output.gif" alt="Example Output" width="800">
-  <br>
-  <em>Clean, comprehensive markdown notes with screenshots and diagrams</em>
-</p>
-
-**See a full example:** [MIT Cognitive Robotics Lecture Notes](assets/refined_Advanced_2._Semantic_Localization-(720p30)_part1.md) (generated from a 1-hour video)
-
 ## The Problem
 
 You know the drill:
@@ -36,6 +26,18 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 
 **Before:** 10 hours of lecture watching  
 **After:** 2 hours of focused reading (with full details and better explanations)
+
+## What You Get
+
+<p align="center">
+  <img src="assets/output.gif" alt="Example Output" width="800">
+  <br>
+  <em>Clean, comprehensive markdown notes with screenshots and diagrams</em>
+</p>
+
+**See a full example:** [MIT Cognitive Robotics Lecture Notes](assets/refined_Advanced_2._Semantic_Localization-(720p30)_part1.md) generated from a 1-hour video
+
+> Note: You need .srt transcripts to process videos. You can use whisper or other online services to make transcriptions for any video.
 
 ### See It In Action
 
