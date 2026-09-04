@@ -1,4 +1,11 @@
-"""Video metadata and perceptual-hash keyframe extraction."""
+"""Video metadata and perceptual-hash keyframe extraction.
+
+Memory model: candidate frames are decoded in small batches, reduced to a
+64-bit perceptual hash immediately and discarded. Only the frames that win the
+diversity selection (at most ``max_frames``) are decoded a second time at full
+resolution for saving. A two-hour 1080p lecture therefore costs a few hundred
+MB at peak instead of many GB, on any machine.
+"""
 
 import logging
 import os
@@ -23,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 PHASH_SIZE = 8
 PHASH_HIGHFREQ_FACTOR = 4
+#: Frames decoded per batch while hashing candidates. 32 x 1080p RGB ~ 200 MB.
+HASH_BATCH = 32
 
 
 @contextmanager
@@ -49,15 +58,17 @@ def format_seconds_to_timestamp(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def get_video_info(video_path: str | Path) -> dict[str, Any]:
-    """Get metadata for a video file (fps, duration, resolution, total frames)."""
+def _open(video_path: str | Path):
     if PyVideoReader is None:
-        raise ImportError("video-reader-rs library is required. Install via uv.")
-
+        raise ImportError("video-reader-rs is required (run `uv sync` in the repo).")
     path = str(Path(video_path).resolve())
     with suppress_stderr():
-        vr = PyVideoReader(path, threads=0)
+        return PyVideoReader(path, threads=0)
 
+
+def get_video_info(video_path: str | Path) -> dict[str, Any]:
+    """Get metadata for a video file (fps, duration, resolution, total frames)."""
+    vr = _open(video_path)
     shape = vr.get_shape()  # (frames, height, width, channels)
     info = vr.get_info()
     fps = float(info.get("fps", 30.0))
@@ -67,7 +78,7 @@ def get_video_info(video_path: str | Path) -> dict[str, Any]:
     duration_sec = total_frames / fps if fps > 0 else 0
 
     return {
-        "video_path": path,
+        "video_path": str(Path(video_path).resolve()),
         "total_frames": total_frames,
         "fps": round(fps, 2),
         "duration_seconds": round(duration_sec, 2),
@@ -76,6 +87,37 @@ def get_video_info(video_path: str | Path) -> dict[str, Any]:
         "width": width,
         "height": height,
     }
+
+
+def pick_diverse(
+    hashes: list[Any],
+    max_frames: int,
+    similarity_threshold: int,
+    min_diversity_threshold: int,
+) -> list[int]:
+    """Greedy diversity selection over perceptual hashes; returns chosen positions in time order.
+
+    Always keeps the first candidate. Then repeatedly drops candidates within
+    ``similarity_threshold`` of the last pick and takes the candidate farthest
+    (min Hamming distance) from everything picked so far, stopping when that
+    distance falls below ``min_diversity_threshold`` or ``max_frames`` is reached.
+    """
+    if not hashes:
+        return []
+    remaining = list(range(1, len(hashes)))
+    picked = [0]
+    while len(picked) < max_frames and remaining:
+        last = hashes[picked[-1]]
+        remaining = [i for i in remaining if (hashes[i] - last) > similarity_threshold]
+        if not remaining:
+            break
+        picked_hashes = [hashes[i] for i in picked]
+        distances = [min(hashes[i] - ph for ph in picked_hashes) for i in remaining]
+        best = max(range(len(remaining)), key=distances.__getitem__)
+        if distances[best] < min_diversity_threshold:
+            break
+        picked.append(remaining.pop(best))
+    return sorted(picked)
 
 
 def extract_keyframes(
@@ -88,99 +130,70 @@ def extract_keyframes(
     min_diversity_threshold: int = 10,
     candidate_samples: int = 60,
 ) -> list[dict[str, Any]]:
-    """
-    Extract diverse, non-duplicate keyframes from video using perceptual hashing.
-    """
-    if PyVideoReader is None:
-        raise ImportError("video-reader-rs is required.")
+    """Extract diverse, non-duplicate keyframes from a video using perceptual hashing."""
     if imagehash is None:
-        raise ImportError("imagehash is required.")
+        raise ImportError("imagehash is required (run `uv sync` in the repo).")
 
-    path = str(Path(video_path).resolve())
-    with suppress_stderr():
-        vr = PyVideoReader(path, threads=0)
-
-    shape = vr.get_shape()
-    total_video_frames = shape[0]
+    vr = _open(video_path)
+    total_video_frames = vr.get_shape()[0]
     fps = float(vr.get_info().get("fps", 30.0))
     total_sec = total_video_frames / fps
 
     if end_seconds is None or end_seconds > total_sec:
         end_seconds = total_sec
-
     start_idx = max(0, min(int(start_seconds * fps), total_video_frames - 1))
     end_idx = max(0, min(int(end_seconds * fps), total_video_frames - 1))
-
     if end_idx <= start_idx:
         return []
 
-    # Sample candidate indices evenly
-    total_chunk_frames = end_idx - start_idx
-    num_samples = min(candidate_samples, total_chunk_frames)
-    step = max(1, total_chunk_frames // num_samples)
+    # Evenly spaced candidate frame indices.
+    span = end_idx - start_idx
+    num_samples = min(candidate_samples, span)
+    step = max(1, span // num_samples)
     frame_indices = [start_idx + i * step for i in range(num_samples) if start_idx + i * step < end_idx]
-
     if not frame_indices:
         return []
 
-    with suppress_stderr():
-        frames_batch = vr.get_batch(frame_indices)
+    # Pass 1: hash candidates batch by batch, never holding more than HASH_BATCH frames.
+    hashes: list[Any] = []
+    for i in range(0, len(frame_indices), HASH_BATCH):
+        batch_idx = frame_indices[i : i + HASH_BATCH]
+        with suppress_stderr():
+            batch = vr.get_batch(batch_idx)
+        for frame in batch:
+            hashes.append(
+                imagehash.phash(
+                    Image.fromarray(frame), hash_size=PHASH_SIZE, highfreq_factor=PHASH_HIGHFREQ_FACTOR
+                )
+            )
+        del batch
 
-    candidates = []
-    for i, f_idx in enumerate(frame_indices):
-        frame = frames_batch[i]
-        curr_sec = f_idx / fps
-        img = Image.fromarray(frame)
-        h = imagehash.phash(img, hash_size=PHASH_SIZE, highfreq_factor=PHASH_HIGHFREQ_FACTOR)
-        candidates.append((h, img, curr_sec, f_idx))
+    chosen = pick_diverse(hashes, max_frames, similarity_threshold, min_diversity_threshold)
+    if not chosen:
+        return []
 
-    # Diversity selection
-    selected = []
-    if candidates:
-        selected.append(candidates.pop(0))
-
-    while len(selected) < max_frames and candidates:
-        last_hash = selected[-1][0]
-        # Prune candidates too close to the last picked frame
-        candidates = [c for c in candidates if (c[0] - last_hash) > similarity_threshold]
-        if not candidates:
-            break
-
-        # Calculate min distance of each candidate to all selected
-        selected_hashes = [s[0] for s in selected]
-        distances = [min(c[0] - sh for sh in selected_hashes) for c in candidates]
-        max_dist = max(distances)
-        best_idx = distances.index(max_dist)
-
-        if max_dist >= min_diversity_threshold:
-            selected.append(candidates.pop(best_idx))
-        else:
-            break
-
-    # Save selected frames
+    # Pass 2: decode only the winners at full resolution and save them.
     if output_dir is None:
-        stem = Path(video_path).stem
-        output_dir = Path("results") / stem / "keyframes"
-    else:
-        output_dir = Path(output_dir)
+        output_dir = Path("results") / Path(video_path).stem / "keyframes"
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    results = []
-    # Sort selected frames chronologically
-    selected.sort(key=lambda x: x[2])
+    chosen_indices = [frame_indices[i] for i in chosen]
+    with suppress_stderr():
+        winners = vr.get_batch(chosen_indices)
 
-    for _, img, sec, f_idx in selected:
-        ts_formatted = format_seconds_to_timestamp(sec)
-        ts_filename = ts_formatted.replace(":", "-")
-        filepath = output_dir / f"frame_{ts_filename}.jpg"
-        img.save(str(filepath), "JPEG", quality=85)
+    results = []
+    for f_idx, frame in zip(chosen_indices, winners, strict=False):
+        sec = f_idx / fps
+        ts = format_seconds_to_timestamp(sec)
+        filepath = output_dir / f"frame_{ts.replace(':', '-')}.jpg"
+        Image.fromarray(frame).save(str(filepath), "JPEG", quality=85)
         results.append(
             {
-                "timestamp": ts_formatted,
+                "timestamp": ts,
                 "seconds": round(sec, 2),
                 "frame_index": f_idx,
                 "image_path": str(filepath.resolve()),
             }
         )
-
     return results

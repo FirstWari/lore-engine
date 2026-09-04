@@ -29,3 +29,12 @@ def test_nine_frames_per_sheet(tmp_path):
 
 def test_empty_input_makes_no_sheet(tmp_path):
     assert compile_storyboard_sheets([], output_dir=tmp_path) == []
+
+
+def test_font_is_scalable_even_without_system_fonts(monkeypatch):
+    from lore_engine import storyboard
+
+    # No system font resolves -> the bundled Pillow font must still honour the size.
+    monkeypatch.setattr(storyboard, "FONT_CANDIDATES", ())
+    font = storyboard.get_font(24)
+    assert font.getbbox("00:12:34")[3] >= 16

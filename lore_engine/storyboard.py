@@ -1,7 +1,6 @@
 """Storyboard grid generator for visual lecture summaries."""
 
 import math
-import os
 from pathlib import Path
 from typing import Any
 
@@ -13,20 +12,39 @@ BORDER_COLOR = (63, 63, 70)  # Frame border
 TS_TEXT_COLOR = (250, 204, 21)  # Yellow timestamp text
 
 
-def get_font(size: int = 18):
-    """Load a system font or default fallback."""
-    candidates = [
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/calibri.ttf",
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size)
-            except Exception:
-                continue
-    return ImageFont.load_default()
+#: Font *names* first (Pillow searches the OS font directories: /usr/share/fonts,
+#: ~/.fonts, /Library/Fonts, C:/Windows/Fonts), then explicit Linux/macOS/Windows paths.
+FONT_CANDIDATES = (
+    "DejaVuSans.ttf",
+    "LiberationSans-Regular.ttf",
+    "NotoSans-Regular.ttf",
+    "Arial.ttf",
+    "arial.ttf",
+    "Helvetica.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+)
+
+
+def get_font(size: int = 18) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+    """Return a readable font at ``size`` on Linux, macOS or Windows.
+
+    Falls back to Pillow's bundled scalable font, so timestamp badges stay
+    legible on a bare server with no system fonts installed.
+    """
+    for candidate in FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # Pillow < 10.1 has no size argument
+        return ImageFont.load_default()
 
 
 def compile_storyboard_sheets(

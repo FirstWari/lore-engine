@@ -31,7 +31,8 @@ the skill in each agent.
 ```bash
 git clone https://github.com/Slydite/lore-engine.git
 cd lore-engine
-uv sync            # or: python -m venv .venv && .venv/Scripts/activate && pip install -e .
+uv sync            # or: python -m venv .venv && source .venv/bin/activate && pip install -e .
+# Linux extras (optional): sudo apt-get install -y ffmpeg fonts-dejavu-core
 ```
 
 Optional: `ffmpeg` on PATH for 720p+ downloads from YouTube-style sites (streams get merged;
@@ -45,7 +46,7 @@ by `COURSERA_COOKIE_FILE` in `.env`. It is a credential: git-ignored, never shar
 |---|---|
 | Download | Coursera pages are read with your cookies (the page state carries the MP4 + subtitle URLs); everything else goes through `yt-dlp` with one best-effort subtitle track. |
 | Transcript | The `.srt` is rendered to timestamped plain text plus duration / word-count stats. |
-| Keyframes | Frames are sampled every ~10 s with `video-reader-rs` (Rust decoder, no whole-video RAM), fingerprinted with a perceptual hash, and picked for diversity. Thresholds relax automatically so screen recordings (notebooks, terminals) still yield enough frames. |
+| Keyframes | Frames are sampled every ~10 s with `video-reader-rs` (Rust decoder), hashed in batches of 32 and discarded, then only the winners are decoded again: a two-hour 1080p lecture peaks at a few hundred MB. Thresholds relax automatically so screen recordings (notebooks, terminals) still yield enough frames. |
 | Storyboard | Nine frames per sheet with timestamp badges: cheap for a multimodal model to scan, and each cell maps back to a full-resolution file in `keyframes/`. |
 | PDF | Pages are rendered at 2x with `pypdfium2`; text per page goes to `transcript.txt`. |
 

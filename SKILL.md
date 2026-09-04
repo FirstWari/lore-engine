@@ -21,12 +21,21 @@ called. **You** (the agent running this) read the output and write the notes.
 ```bash
 git clone https://github.com/Slydite/lore-engine.git
 cd lore-engine
-uv sync            # or: python -m venv .venv && .venv/Scripts/activate && pip install -e .
+uv sync            # or: python -m venv .venv && source .venv/bin/activate && pip install -e .
+```
+
+Linux server (Debian/Ubuntu) one-liner for the optional system pieces:
+
+```bash
+sudo apt-get install -y ffmpeg fonts-dejavu-core   # ffmpeg: 720p+ merges; fonts: readable storyboard badges
+curl -LsSf https://astral.sh/uv/install.sh | sh     # if uv is missing
 ```
 
 Optional:
 
 - `ffmpeg` on PATH: only needed to get 720p+ from YouTube-style sites (streams are merged). Without it you still get a single-file MP4, usually 360p.
+- Fonts: the storyboard timestamp badge uses DejaVu / Liberation / Noto / Arial if present, else Pillow's bundled font, so a bare container still produces readable sheets.
+- Memory: candidate frames are hashed in batches of 32 and only the winners are decoded again, so a two-hour 1080p lecture peaks at a few hundred MB. No tuning needed on small or large machines.
 - **Coursera** needs your own logged-in cookies. In your browser install a "Get cookies.txt (Netscape format)" extension, open coursera.org while signed in, export, save as `www.coursera.org_cookies.txt` in the repo root (or set `COURSERA_COOKIE_FILE=/path/to/file` in `.env`). The file is a credential: it is git-ignored, never share it.
 - `.env` (optional): `LORE_WORKSPACE_DIR=downloads` (where videos land), `COURSERA_COOKIE_FILE=...`.
 
@@ -43,6 +52,7 @@ python lore.py <input> --out results --quality 720p --lang en --max-frames 27 --
 ```
 
 - `--out` results root (default `results/`), `--lang` subtitle language, `--max-frames` keyframes to keep (27 = 3 sheets), `--json` print only the final JSON line.
+- On a server, run it detached and read the JSON afterwards: `nohup python lore.py "<url>" --json > run.json 2> run.log &` — `tail -1 run.json` is the index.
 - Exit code 0 = success. On failure it prints one line `{"error": "..."}` and exits 1.
 - The **last stdout line is always JSON** = the content of `index.json`. Parse that; do not scrape the progress lines (they go to stderr).
 
