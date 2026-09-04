@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lore-engine"
 version = "0.1.0"
-description = "Multimodal AI pipeline that transforms educational content into comprehensive, searchable markdown notes"
+description = "Multimodal educational content extraction engine and Model Context Protocol (MCP) server"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -13,14 +13,14 @@ authors = [
     {name = "Slydite", email = "slydite@gmail.com"}
 ]
 keywords = [
-    "ai",
+    "mcp",
+    "model-context-protocol",
     "education",
     "notes",
-    "gemini",
     "multimodal",
     "video-processing",
     "pdf",
-    "llm"
+    "transcripts"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -42,14 +42,16 @@ dependencies = [
     "Pillow>=11.3.0",
     "pypdfium2>=4.30.0",
     "srt>=3.5.3",
-    "google-generativeai",
+    "mcp>=2.1.1",
     "python-dotenv>=1.1.1",
+    "yt-dlp>=2026.8.19",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.4.2",
     "pytest-mock>=3.15.1",
+    "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.0",
     "black>=25.9.0",
@@ -62,9 +64,10 @@ Issues = "https://github.com/Slydite/lore-engine/issues"
 
 [project.scripts]
 lore-engine = "src.main:main"
+lore-engine-mcp = "src.mcp_server.server:main"
 
 [tool.setuptools]
-packages = ["src", "src.notes_generator", "src.notes_generator.processors"]
+packages = ["src", "src.core", "src.mcp_server", "src.notes_generator", "src.notes_generator.processors"]
 
 [tool.setuptools.package-data]
 src = ["*.json"]
@@ -144,5 +147,10 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.4.0",
 ]
 

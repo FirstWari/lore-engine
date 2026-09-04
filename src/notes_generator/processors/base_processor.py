@@ -6,11 +6,16 @@ from typing import Dict, Any
 
 # sys.path manipulation removed - use proper Python package imports
 
-from config_utils import Config
-from prompt_builder import PromptBuilder
-from notes_generator.llm_interaction import LLMInteraction
-from notes_generator.content_extractor import ContentExtractor
-from notes_generator.markdown_utils import MarkdownUtils
+try:
+    from config_utils import Config
+    from prompt_builder import PromptBuilder
+    from notes_generator.content_extractor import ContentExtractor
+    from notes_generator.markdown_utils import MarkdownUtils
+except ImportError:
+    from src.config_utils import Config
+    from src.prompt_builder import PromptBuilder
+    from src.notes_generator.content_extractor import ContentExtractor
+    from src.notes_generator.markdown_utils import MarkdownUtils
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +28,12 @@ class BaseNotesProcessor(ABC):
     including output file management, chunk processing, and logging.
     """
     
-    def __init__(self, config: Config, llm_interaction: LLMInteraction, 
-                 content_extractor: ContentExtractor, markdown_utils: MarkdownUtils):
+    def __init__(self, config: Config, llm_interaction: Any = None, 
+                 content_extractor: ContentExtractor = None, markdown_utils: MarkdownUtils = None):
         self.config = config
         self.llm_interaction = llm_interaction
-        self.content_extractor = content_extractor
-        self.markdown_utils = markdown_utils
+        self.content_extractor = content_extractor or ContentExtractor()
+        self.markdown_utils = markdown_utils or MarkdownUtils()
 
     # ===========================
     # Common Helper Methods

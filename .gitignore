@@ -13,3 +13,18 @@ build/
 dist/
 *.whl
 .vscode/*
+
+# Credentials and browser session exports (never commit)
+cookies.txt
+*cookies*.txt
+
+# Local media workspace and generated results
+downloads/
+results/
+
+# Virtualenvs and tool caches
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

@@ -3,9 +3,11 @@ video-reader-rs>=0.2.0
 Pillow==11.2.1
 pypdfium2==4.30.1
 srt==3.5.3
-google-generativeai>=0.8.0
+mcp>=2.1.1
 python-dotenv>=1.0.0
+yt-dlp>=2026.8.19
 
 # Testing dependencies
 pytest>=8.0.0
 pytest-mock>=3.12.0
+pytest-asyncio>=1.4.0

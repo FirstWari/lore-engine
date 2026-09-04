@@ -8,15 +8,31 @@ from itertools import cycle
 
 # sys.path manipulation removed - use proper Python package imports
 
-from config_utils import Config
-from logging_utils import setup_unicode_logging
-from notes_generator.llm_interaction import LLMInteraction
-from notes_generator.content_extractor import ContentExtractor
-from notes_generator.markdown_utils import MarkdownUtils
-from notes_generator.processors import PDFNotesProcessor, TranscriptNotesProcessor
-from notes_generator.constants import VIDEO_EXTENSIONS
+try:
+    from config_utils import Config
+    from logging_utils import setup_unicode_logging
+    from notes_generator.content_extractor import ContentExtractor
+    from notes_generator.markdown_utils import MarkdownUtils
+    from notes_generator.processors import PDFNotesProcessor, TranscriptNotesProcessor
+    from notes_generator.constants import VIDEO_EXTENSIONS
+except ImportError:
+    from src.config_utils import Config
+    from src.logging_utils import setup_unicode_logging
+    from src.notes_generator.content_extractor import ContentExtractor
+    from src.notes_generator.markdown_utils import MarkdownUtils
+    from src.notes_generator.processors import PDFNotesProcessor, TranscriptNotesProcessor
+    from src.notes_generator.constants import VIDEO_EXTENSIONS
 
 logger = logging.getLogger(__name__)
+
+#: The Gemini-backed note writer was removed when lore-engine became an MCP
+#: server (v0.2.0). The extraction pipeline is exposed as MCP tools instead;
+#: the connected LLM (Claude Desktop, Cursor, ...) writes the notes.
+LLM_GENERATION_REMOVED_MESSAGE = (
+    "LLM-based note generation was removed: lore-engine now runs as an MCP server. "
+    "Start it with `lore-engine --mcp` (or `lore-engine-mcp`) and let the connected "
+    "LLM call the extraction tools instead."
+)
 
 # File extension constants
 SUPPORTED_EXTENSIONS = VIDEO_EXTENSIONS + ['.pdf', '.srt']
@@ -57,7 +73,7 @@ def process_file_worker(args: Tuple[str, Dict[str, Any], str]) -> bool:
         logger.info(f"Worker{pid_info} starting: {os.path.basename(file_path)}")
 
         # Initialize processing components
-        llm_interaction = LLMInteraction(config, api_key)
+        llm_interaction = None
         content_extractor = ContentExtractor()
         markdown_utils = MarkdownUtils()
 
@@ -192,6 +208,20 @@ class NotesGenerator:
     # Batch Processing
     # ===========================
     
+    def _llm_api_keys(self) -> List[str]:
+        """Return LLM API keys, or ``[]`` with a clear error once generation is unavailable.
+
+        ``Config.get_api_keys`` no longer exists after the MCP rewrite, so the
+        legacy CLI path used to die with an ``AttributeError`` deep inside the
+        worker. Fail here, once, with a message that points at the MCP server.
+        """
+        getter = getattr(self.config, "get_api_keys", None)
+        keys = getter() if callable(getter) else []
+        if not keys:
+            logger.error(LLM_GENERATION_REMOVED_MESSAGE)
+            return []
+        return list(keys)
+
     def batch_process(self, input_dir: str, output_dir: str, start_page: int = 0,
                       prompt_type: str = None, custom_prompt: str = None) -> None:
         """
@@ -205,9 +235,8 @@ class NotesGenerator:
             prompt_type: Type of prompt to use
             custom_prompt: Custom prompt text
         """
-        api_keys = self.config.get_api_keys()
+        api_keys = self._llm_api_keys()
         if not api_keys:
-            logger.error("No API keys configured. Cannot start batch processing.")
             return
         
         # Find all supported files
@@ -300,9 +329,8 @@ class NotesGenerator:
         Returns:
             bool: True if processing succeeded, False otherwise
         """
-        api_keys = self.config.get_api_keys()
+        api_keys = self._llm_api_keys()
         if not api_keys:
-            logger.error(f"No API keys configured. Cannot process {file_type}.")
             return False
 
         # Prepare config for the worker

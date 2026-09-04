@@ -66,25 +66,31 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 
 ### Performance
 
-- **🚀 Blazing Fast**: Process 10 hours of video in 40 minutes (15x real-time speed with 2 keys). Then consume in the next 4 hours.
-- **⚡ Parallel Processing**: Multi-process pipeline + round-robin API keys = scales linearly
+- **🚀 Fast Extraction**: Keyframes, transcripts and PDF pages are extracted locally in seconds; the connected LLM decides how much of it to read.
 - **💾 Memory Efficient**: Doesn't load entire videos into RAM
-- **🆓 Free-Tier Friendly**: Optimized for Gemini's generous free tier
+- **🔒 Local Only**: No API keys and no uploads — the engine never calls an LLM itself
 
 **Performance:**
 
 - Frame extraction: ~2-4 seconds per chunk (video_reader-rs, not OpenCV)
 - Memory efficient: No whole-video allocation like Decord
-- Scales linearly: 2 API keys = 30x real-time, 10 keys = 150x real-time
 - CPU usage: ~3% (I/O bound, not compute bound)
 
-## Quick Start
+## 🔌 Model Context Protocol (MCP) Server
+
+**The Lore Engine now operates as a Model Context Protocol (MCP) server!**
+
+Instead of calling fixed internal LLMs with API keys, Lore Engine exposes rich multimodal tools and resources so **any external LLM (Claude Desktop, Cursor, Antigravity, Windsurf, Gemini, OpenAI)** can connect to it and retrieve educational content on demand.
+
+- **No LLM API keys required for Lore Engine!** Runs 100% locally.
+- **Extracts non-duplicate visual keyframes** using Rust-based `video-reader-rs` & perceptual hashing.
+- **Compiles 3x3 storyboard sheets** with timestamps for rapid visual scanning by multimodal LLMs.
+- **Searchable timestamped transcripts (.srt)** and PDF slide extraction.
+- **Standard MCP 2.x interface** (`stdio`, `sse`).
 
 ### 1. Install Dependencies
 
-**Recommended: Using uv (fastest)**
-
-First, [install uv](https://docs.astral.sh/uv/getting-started/installation/) if you haven't already.
+Using `uv` (recommended):
 
 ```bash
 git clone https://github.com/Slydite/lore-engine.git
@@ -92,98 +98,63 @@ cd lore-engine
 uv sync
 ```
 
-**Alternative: Using pip**
+### 2. Start the MCP Server
 
 ```bash
-git clone https://github.com/Slydite/lore-engine.git
-cd lore-engine
-pip install -e .
+# Stdio transport (default, used by Claude Desktop & Cursor)
+uv run lore-engine-mcp
+
+# Or via main CLI
+uv run lore-engine --mcp
+
+# SSE transport (for remote web or network connections)
+uv run lore-engine-mcp --transport sse --port 8000
 ```
 
-**With dev dependencies:**
+### 3. Connect from Claude Desktop
 
-```bash
-# Using uv
-uv sync --all-extras
+Add this to your `claude_desktop_config.json` (`%APPDATA%\Claude\claude_desktop_config.json` on Windows or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
-# Using pip
-pip install -e ".[dev]"
+```json
+{
+  "mcpServers": {
+    "lore-engine": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/lore-engine",
+        "run",
+        "lore-engine-mcp"
+      ]
+    }
+  }
+}
 ```
 
-> **Note:** This project uses `google-generativeai` (legacy SDK). We may migrate to the new `google-genai` SDK in the future. See [migration guide](https://ai.google.dev/gemini-api/docs/migrate#python) for differences.
+### 4. Available MCP Tools
 
-**Note:** On Windows, you may need to install ffmpeg separately:
+| Tool | Description |
+| :--- | :--- |
+| `list_lectures` | Scan workspace for videos, transcripts, PDFs, and storyboards. |
+| `search_transcript` | Search SRT transcript for terms/concepts, returning timestamps and context lines. |
+| `get_transcript` | Retrieve formatted transcript within a time window or paginated. |
+| `get_transcript_summary` | Get transcript stats: duration, word count, subtitle count. |
+| `get_video_metadata` | Get video duration, resolution, fps, and frame count. |
+| `extract_video_keyframes` | Extract diverse keyframes with perceptual hash deduplication. |
+| `extract_frame_at_timestamp` | Extract a single frame at exact timestamp (`HH:MM:SS` or seconds). |
+| `create_storyboard` | Compile 3x3 storyboard sheets (9 frames per page with timestamp badges). |
+| `get_pdf_metadata` | Get PDF page count, metadata, and dimensions. |
+| `extract_pdf_pages` | Extract text and/or render high-res slide images from PDF pages. |
+| `download_coursera_lecture` | Download lecture video and subtitles (.srt) from Coursera. |
 
-```bash
-# Using Chocolatey
-choco install ffmpeg
+### 5. Pure Data Access (No Forced Summaries / Prompts)
 
-# Or download from: https://ffmpeg.org/download.html
-```
+Lore Engine does not impose any prompts, summaries, or opinionated note generation on connected models. It is a **pure data extraction and retrieval engine**:
 
-### 2. Get Your (Free) Gemini API Key
-
-1. Go to [Google AI Studio](https://aistudio.google.com/)
-2. Click "Get API Key"
-3. Copy your key
-
-### 3. Configure API Keys
-
-Create a `.env` file in the project root:
-
-```bash
-GEMINI_API_KEY_1=YOUR_GEMINI_API_KEY_HERE
-```
-
-**Pro tip:** Add multiple keys for faster parallel processing:
-
-```bash
-GEMINI_API_KEY_1=your_first_key_here
-GEMINI_API_KEY_2=your_second_key_here
-GEMINI_API_KEY_3=your_third_key_here
-```
-
-The engine uses numbered keys (`GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`, etc.) in round-robin fashion. More keys = faster processing!
-
-### 4. Run It
-
-**Interactive Mode (easiest):**
-
-```bash
-# With uv (recommended)
-uv run python src/main.py
-
-# Or with regular Python (if using pip install)
-cd src
-python main.py
-```
-
-**Single File:**
-
-```bash
-# With uv
-uv run python src/main.py --path "/path/to/lecture.mp4"
-
-# Or with regular Python
-python src/main.py --path "/path/to/lecture.mp4"
-```
-
-**Batch Process a Folder:**
-
-```bash
-# With uv
-uv run python src/main.py --batch-path "/path/to/lectures/"
-
-# Or with regular Python
-python src/main.py --batch-path "/path/to/lectures/"
-```
-
-The tool will:
-
-1. 📹 Extract smart keyframes from videos
-2. 📝 Process transcripts (auto-detects `.srt` files)
-3. 🤖 Generate comprehensive notes with Gemini
-4. 💾 Save markdown files in the output directory
+1. 📹 **Video Data:** Keyframe extraction with perceptual hash deduplication, timestamped single-frame extraction, and 3x3 storyboard compilation.
+2. 📝 **Transcript Data:** Full subtitle text, time-windowed slices, keyword/phrase search with context lines, and transcript metadata.
+3. 📄 **PDF Data:** High-res slide rendering and full-text extraction per page.
+4. 💾 **Storage & Inspection:** All processed artifacts are stored in `downloads/` and `results/` for instant access by LLM agents.
 
 ## How It Works (For The Nerds 🤓)
 
@@ -200,31 +171,14 @@ The tool will:
 - Configurable similarity thresholds
 - Global deduplication across entire video
 
-**3. Multimodal AI Orchestration**
-
-- Gemini 2.5 Flash for speed + quality balance (Any Gemini model works)
-- Automatic fallback: inline images → File API for large batches
-- Exponential backoff with intelligent retry logic
-- Rate limiting to maximize free-tier throughput
-
-**4. Output Processing**
-
-- Automatic Mermaid diagram syntax correction
-- Screenshot placeholder replacement with relative paths
-- Markdown cleaning and formatting
-
-### Performance Characteristics
+**3. Performance Characteristics**
 
 | Metric | Value | Notes |
 |--------|-------|-------|
 | Frame extraction | 2-4s per chunk | 1080p video, 5 frames |
-| LLM inference | 10-20s per chunk | ~50 subtitles + images |
-| Rate limiting | 10s between calls | Gemini free tier |
-| Throughput | 15x real-time | With 2 API keys |
-| Memory usage | <500MB | Excluding video file |
-
-**Bottleneck:** LLM API calls (expected and unavoidable)  
-**Not the bottleneck:** Frame extraction
+| Perceptual Hash | ~1ms per frame | 8x8 DCT hash |
+| Memory usage | <500MB | Streamed decoding, no full RAM load |
+| Network | 100% Local | No external API calls needed for extraction |
 
 ## Configuration
 
@@ -232,40 +186,22 @@ Edit `config.json` to customize:
 
 ```json
 {
-  "model_name": "gemini-2.5-flash",
-  "pages_per_chunk": 5,
-  "lines_per_chunk": 50,
-  "screenshots_per_minute": 3,
+  "pages_per_chunk": 10,
+  "lines_per_chunk": 120,
+  "screenshots_per_minute": 1.0,
   "hash_similarity_threshold": 5,
-  "request_interval": 10
+  "min_diversity_threshold": 10
 }
 ```
 
-**Key settings:**
-
-- `screenshots_per_minute`: How many frames to extract per minute of video
-- `hash_similarity_threshold`: Lower = more strict deduplication
-- `request_interval`: Seconds between API calls (respect rate limits!)
-
 ## FAQ
 
-**Q: Does this work with non-English content?**  
-A: Yes! Gemini supports 100+ languages. Just make sure your SRT files are in the correct encoding (UTF-8). You will have to modify the base prompt to include your language.
-
-**Q: Can I use this for copyrighted content?**  
-A: The tool processes content locally and sends frames to Gemini's API. Follow your institution's fair use policies for educational content. Notes are derived content so should be fine :P but I am no legal expert.
-
-**Q: Why Gemini and not GPT-5/Claude?**  
-A: Gemini 2.5 has native multimodal support, generous free tier (60 RPM), and excellent performance on educational content. But the architecture is LLM-agnostic and model agnostic support coming soon!
-
-**Q: How much does this cost?**  
-A: **Free** if you stay within Gemini's limits. Heavy users might hit paid tiers.
-
-**Q: Can I run this on my own LLM?**  
-A: Not yet, but the architecture supports it. PRs welcome for OpenRouter(and alternatives) integration.
+**Q: Does this require any API keys?**  
+A: **No.** Lore Engine runs 100% locally on your machine. Any LLM (Claude, Cursor, Antigravity, local models, etc.) connects to it via MCP without needing any Gemini or cloud API keys for extraction.
 
 **Q: What about privacy?**  
-A: The tool runs locally, however all content is sent to the Gemini API and Gemini Privacy Policy applies.
+A: All video, transcript, and PDF extraction happens completely offline on your local computer. No media or transcripts are uploaded anywhere by Lore Engine.
+
 
 ## Roadmap
 

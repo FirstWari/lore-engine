@@ -9,7 +9,9 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+src_dir = str(Path(__file__).parent)
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
 
 try:
     # Try relative imports first (for running from src directory)
@@ -50,10 +52,13 @@ def parse_arguments():
                       help="Type of content being processed (overrides config)")
     parser.add_argument("--custom-prompt", help="Path to a file containing a custom prompt (overrides config)")
     parser.add_argument("--output-prefix", help="Prefix for output files (overrides config)")
-    parser.add_argument("--model", help="Gemini model to use (overrides config)")
+    parser.add_argument("--model", help="Deprecated and ignored: LLM note generation moved to the MCP server (see --mcp).")
 
     # API configuration
-    parser.add_argument("--api-key", help="Gemini API key(s). Separate multiple keys with commas. Overrides config and environment variables.")
+    parser.add_argument("--api-key", help="Deprecated and ignored: lore-engine no longer calls an LLM itself (see --mcp).")
+
+    # MCP Server option
+    parser.add_argument("--mcp", action="store_true", help="Start the Lore Engine MCP (Model Context Protocol) server.")
 
     # Interactive and default options
     parser.add_argument("-d", "--defaults", action="store_true", help="Run with default settings and skip interactive prompts if possible.")
@@ -65,12 +70,18 @@ def main():
     """Main function to run the script."""
     args = parse_arguments()
 
+    # If --mcp requested or input is 'mcp', launch MCP server
+    if getattr(args, 'mcp', False) or (args.input and str(args.input).lower() == 'mcp'):
+        from src.mcp_server.server import main as mcp_main
+        mcp_main()
+        return
+
     # If not running with defaults or 'yes' flag, use streamlined interactive input
     if not (args.defaults or args.yes):
         config = get_streamlined_user_input()
         # Convert config dict to args-like object for compatibility
-        args.input = config['input_path']  # Use the original input path
-        args.output = config['output_dir']
+        args.input = config.get('input_path') or (config.get('files')[0] if config.get('files') else None)
+        args.output = config.get('output_dir')
         # Store additional config for later use
         args.streamlined_config = config
     
