@@ -145,7 +145,8 @@ Add this to your `claude_desktop_config.json` (`%APPDATA%\Claude\claude_desktop_
 | `create_storyboard` | Compile 3x3 storyboard sheets (9 frames per page with timestamp badges). |
 | `get_pdf_metadata` | Get PDF page count, metadata, and dimensions. |
 | `extract_pdf_pages` | Extract text and/or render high-res slide images from PDF pages. |
-| `download_coursera_lecture` | Download lecture video and subtitles (.srt) from Coursera. |
+| `download_lecture` | Download any lecture URL into the workspace: Coursera (with your exported cookies) or YouTube/other sites via yt-dlp, with `.srt` subtitles. |
+| `download_coursera_lecture` | Coursera-only variant of `download_lecture` (kept for compatibility). |
 
 ### 5. Pure Data Access (No Forced Summaries / Prompts)
 

@@ -27,7 +27,15 @@ from src.core.pdf import (
     get_pdf_info,
     extract_pdf_content as core_extract_pdf
 )
-from src.core.downloader import download_coursera_media
+from src.core.downloader import download_coursera_media, download_lecture as core_download_lecture
+
+# Pick up LORE_WORKSPACE_DIR / COURSERA_COOKIE_FILE from a project .env (optional).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:  # pragma: no cover - python-dotenv is a declared dependency
+    pass
 
 # Initialize MCP Server
 server = MCPServer(
@@ -209,14 +217,40 @@ def extract_pdf_pages(
 # ---------------------------------------------------------------------------
 
 @server.tool(
+    name="download_lecture",
+    description=(
+        "Download a lecture from a URL into the workspace and return the video path plus the "
+        ".srt transcript path. Coursera lecture pages use the learner's exported cookies file "
+        "(COURSERA_COOKIE_FILE / www.coursera.org_cookies.txt); every other site (YouTube, "
+        "Vimeo, media servers, ...) is fetched with yt-dlp, including auto-generated subtitles. "
+        "Follow up with get_transcript_summary / search_transcript / create_storyboard."
+    )
+)
+def download_lecture(
+    url: str,
+    output_dir: Optional[str] = None,
+    quality: str = "720p",
+    subtitle_language: str = "en",
+    cookies_file: Optional[str] = None
+) -> Dict[str, Any]:
+    """Download any lecture URL (Coursera via cookies, other sites via yt-dlp)."""
+    return core_download_lecture(
+        url=url,
+        output_dir=output_dir,
+        cookie_file=cookies_file,
+        sub_lang=subtitle_language,
+        quality=quality
+    )
+
+@server.tool(
     name="download_coursera_lecture",
-    description="Download lecture video and subtitles (.srt) from a Coursera lecture URL using an exported cookies file."
+    description="Download lecture video and subtitles (.srt) from a Coursera lecture URL using an exported cookies file. Prefer download_lecture, which also handles non-Coursera URLs."
 )
 def download_coursera_lecture(
     url: str,
-    output_dir: str = "downloads",
+    output_dir: Optional[str] = None,
     quality: str = "720p",
-    cookies_file: str = "www.coursera.org_cookies.txt"
+    cookies_file: Optional[str] = None
 ) -> Dict[str, Any]:
     """Download lecture video and transcript from Coursera."""
     return download_coursera_media(

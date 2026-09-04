@@ -25,6 +25,7 @@ async def test_mcp_tool_registration():
         "create_storyboard",
         "get_pdf_metadata",
         "extract_pdf_pages",
+        "download_lecture",
         "download_coursera_lecture"
     }
     assert expected.issubset(tool_names)
