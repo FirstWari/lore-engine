@@ -1,6 +1,6 @@
 """The legacy CLI note-generation path must fail clearly, not with AttributeError.
 
-``Config.get_api_keys`` and the Gemini writer were removed in the MCP rewrite;
+``Config.get_api_keys`` and the Gemini writer were removed with the extraction-only rewrite;
 ``NotesGenerator`` still exists for the CLI, so it has to report that clearly.
 """
 

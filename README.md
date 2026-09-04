@@ -76,86 +76,35 @@ Think of it as a knowledge extraction engine: you feed it raw educational conten
 - Memory efficient: No whole-video allocation like Decord
 - CPU usage: ~3% (I/O bound, not compute bound)
 
-## 🔌 Model Context Protocol (MCP) Server
+## Use It As An Agent Skill (one command)
 
-**The Lore Engine now operates as a Model Context Protocol (MCP) server!**
-
-Instead of calling fixed internal LLMs with API keys, Lore Engine exposes rich multimodal tools and resources so **any external LLM (Claude Desktop, Cursor, Antigravity, Windsurf, Gemini, OpenAI)** can connect to it and retrieve educational content on demand.
-
-- **No LLM API keys required for Lore Engine!** Runs 100% locally.
-- **Extracts non-duplicate visual keyframes** using Rust-based `video-reader-rs` & perceptual hashing.
-- **Compiles 3x3 storyboard sheets** with timestamps for rapid visual scanning by multimodal LLMs.
-- **Searchable timestamped transcripts (.srt)** and PDF slide extraction.
-- **Standard MCP 2.x interface** (`stdio`, `sse`).
-
-### 1. Install Dependencies
-
-Using `uv` (recommended):
+Lore Engine no longer calls an LLM itself. It is a **single command** that turns a
+lecture into files any AI agent (Claude Code, Codex, Gemini CLI, Hermes, or a human) can read:
 
 ```bash
-git clone https://github.com/Slydite/lore-engine.git
-cd lore-engine
-uv sync
+git clone https://github.com/Slydite/lore-engine.git && cd lore-engine
+uv sync                                   # or: pip install -e .
+
+python lore.py "https://www.coursera.org/learn/<course>/lecture/<id>/<slug>"   # needs your exported cookies
+python lore.py "https://www.youtube.com/watch?v=..."                            # any yt-dlp site
+python lore.py ./lecture.mp4                                                    # .srt beside it is used
+python lore.py ./slides.pdf
 ```
 
-### 2. Start the MCP Server
+You get one folder:
 
-```bash
-# Stdio transport (default, used by Claude Desktop & Cursor)
-uv run lore-engine-mcp
-
-# Or via main CLI
-uv run lore-engine --mcp
-
-# SSE transport (for remote web or network connections)
-uv run lore-engine-mcp --transport sse --port 8000
+```
+results/<title>/
+  index.json              everything below with absolute paths (also printed as the last stdout line)
+  transcript.txt          "[HH:MM:SS - HH:MM:SS] text" per subtitle (PDF: "[Page N]" blocks)
+  transcript.srt          copy of the subtitles (video only)
+  keyframes/              visually distinct frames, frame_HH-MM-SS.jpg (PDF: pages/)
+  storyboard_page_NN.jpg  3x3 contact sheets with timestamp badges
 ```
 
-### 3. Connect from Claude Desktop
-
-Add this to your `claude_desktop_config.json` (`%APPDATA%\Claude\claude_desktop_config.json` on Windows or `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
-
-```json
-{
-  "mcpServers": {
-    "lore-engine": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/lore-engine",
-        "run",
-        "lore-engine-mcp"
-      ]
-    }
-  }
-}
-```
-
-### 4. Available MCP Tools
-
-| Tool | Description |
-| :--- | :--- |
-| `list_lectures` | Scan workspace for videos, transcripts, PDFs, and storyboards. |
-| `search_transcript` | Search SRT transcript for terms/concepts, returning timestamps and context lines. |
-| `get_transcript` | Retrieve formatted transcript within a time window or paginated. |
-| `get_transcript_summary` | Get transcript stats: duration, word count, subtitle count. |
-| `get_video_metadata` | Get video duration, resolution, fps, and frame count. |
-| `extract_video_keyframes` | Extract diverse keyframes with perceptual hash deduplication. |
-| `extract_frame_at_timestamp` | Extract a single frame at exact timestamp (`HH:MM:SS` or seconds). |
-| `create_storyboard` | Compile 3x3 storyboard sheets (9 frames per page with timestamp badges). |
-| `get_pdf_metadata` | Get PDF page count, metadata, and dimensions. |
-| `extract_pdf_pages` | Extract text and/or render high-res slide images from PDF pages. |
-| `download_lecture` | Download any lecture URL into the workspace: Coursera (with your exported cookies) or YouTube/other sites via yt-dlp, with `.srt` subtitles. |
-| `download_coursera_lecture` | Coursera-only variant of `download_lecture` (kept for compatibility). |
-
-### 5. Pure Data Access (No Forced Summaries / Prompts)
-
-Lore Engine does not impose any prompts, summaries, or opinionated note generation on connected models. It is a **pure data extraction and retrieval engine**:
-
-1. 📹 **Video Data:** Keyframe extraction with perceptual hash deduplication, timestamped single-frame extraction, and 3x3 storyboard compilation.
-2. 📝 **Transcript Data:** Full subtitle text, time-windowed slices, keyword/phrase search with context lines, and transcript metadata.
-3. 📄 **PDF Data:** High-res slide rendering and full-text extraction per page.
-4. 💾 **Storage & Inspection:** All processed artifacts are stored in `downloads/` and `results/` for instant access by LLM agents.
+The agent reads `transcript.txt` for the words and the storyboard sheets for the visuals,
+then writes the notes. Setup details, Coursera cookies, per-agent install notes and
+troubleshooting are in **[SKILL.md](SKILL.md)** — that file is the whole contract.
 
 ## How It Works (For The Nerds 🤓)
 
@@ -198,7 +147,7 @@ Edit `config.json` to customize:
 ## FAQ
 
 **Q: Does this require any API keys?**  
-A: **No.** Lore Engine runs 100% locally on your machine. Any LLM (Claude, Cursor, Antigravity, local models, etc.) connects to it via MCP without needing any Gemini or cloud API keys for extraction.
+A: **No.** Lore Engine runs 100% locally on your machine. It only extracts; the AI agent you already use (Claude Code, Codex, Gemini CLI, Hermes, ...) reads the output folder and writes the notes.
 
 **Q: What about privacy?**  
 A: All video, transcript, and PDF extraction happens completely offline on your local computer. No media or transcripts are uploaded anywhere by Lore Engine.

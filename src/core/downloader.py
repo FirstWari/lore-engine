@@ -8,7 +8,7 @@ Two download paths share one public entry point, :func:`download_lecture`:
 * **Everything else** (YouTube, Vimeo, university media servers, ...) goes
   through ``yt-dlp``, optionally with the same cookies file.
 
-Defaults come from the environment so an MCP client only has to pass the URL:
+Defaults come from the environment so a caller only has to pass the URL:
 ``LORE_WORKSPACE_DIR`` (output directory, default ``downloads``) and
 ``COURSERA_COOKIE_FILE`` (cookies path, default ``www.coursera.org_cookies.txt``
 then ``cookies.txt``).
@@ -238,6 +238,7 @@ def download_with_ytdlp(
         "restrictfilenames": True,
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,  # keep stdout clean: lore.py's last line must be the JSON summary
         "noplaylist": True,
     }
     cookie_path = resolve_cookie_file(cookie_file)

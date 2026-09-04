@@ -52,13 +52,10 @@ def parse_arguments():
                       help="Type of content being processed (overrides config)")
     parser.add_argument("--custom-prompt", help="Path to a file containing a custom prompt (overrides config)")
     parser.add_argument("--output-prefix", help="Prefix for output files (overrides config)")
-    parser.add_argument("--model", help="Deprecated and ignored: LLM note generation moved to the MCP server (see --mcp).")
+    parser.add_argument("--model", help="Deprecated and ignored: LLM note generation was removed (use lore.py + your own agent).")
 
     # API configuration
-    parser.add_argument("--api-key", help="Deprecated and ignored: lore-engine no longer calls an LLM itself (see --mcp).")
-
-    # MCP Server option
-    parser.add_argument("--mcp", action="store_true", help="Start the Lore Engine MCP (Model Context Protocol) server.")
+    parser.add_argument("--api-key", help="Deprecated and ignored: lore-engine no longer calls an LLM itself.")
 
     # Interactive and default options
     parser.add_argument("-d", "--defaults", action="store_true", help="Run with default settings and skip interactive prompts if possible.")
@@ -69,12 +66,6 @@ def parse_arguments():
 def main():
     """Main function to run the script."""
     args = parse_arguments()
-
-    # If --mcp requested or input is 'mcp', launch MCP server
-    if getattr(args, 'mcp', False) or (args.input and str(args.input).lower() == 'mcp'):
-        from src.mcp_server.server import main as mcp_main
-        mcp_main()
-        return
 
     # If not running with defaults or 'yes' flag, use streamlined interactive input
     if not (args.defaults or args.yes):

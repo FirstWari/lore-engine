@@ -25,13 +25,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-#: The Gemini-backed note writer was removed when lore-engine became an MCP
-#: server (v0.2.0). The extraction pipeline is exposed as MCP tools instead;
-#: the connected LLM (Claude Desktop, Cursor, ...) writes the notes.
+#: The Gemini-backed note writer was removed when lore-engine became an
+#: extraction-only skill (lore.py). The agent that runs the command writes the notes.
 LLM_GENERATION_REMOVED_MESSAGE = (
-    "LLM-based note generation was removed: lore-engine now runs as an MCP server. "
-    "Start it with `lore-engine --mcp` (or `lore-engine-mcp`) and let the connected "
-    "LLM call the extraction tools instead."
+    "LLM-based note generation was removed: lore-engine is now a single-command "
+    "extraction skill. Run `python lore.py <url|video|pdf>` and let your own AI agent "
+    "write the notes from results/<title>/ (see SKILL.md)."
 )
 
 # File extension constants
@@ -211,9 +210,9 @@ class NotesGenerator:
     def _llm_api_keys(self) -> List[str]:
         """Return LLM API keys, or ``[]`` with a clear error once generation is unavailable.
 
-        ``Config.get_api_keys`` no longer exists after the MCP rewrite, so the
+        ``Config.get_api_keys`` no longer exists after the extraction-only rewrite, so the
         legacy CLI path used to die with an ``AttributeError`` deep inside the
-        worker. Fail here, once, with a message that points at the MCP server.
+        worker. Fail here, once, with a message that points at lore.py / SKILL.md.
         """
         getter = getattr(self.config, "get_api_keys", None)
         keys = getter() if callable(getter) else []
