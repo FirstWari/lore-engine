@@ -53,6 +53,45 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Keyframe selection
+# ---------------------------------------------------------------------------
+
+#: (similarity, min_diversity) pHash thresholds, strict to loose. Strict keeps a
+#: talking-head lecture down to its slide changes; screen recordings (notebooks,
+#: code, terminals) change only a few pixels between meaningful moments, so the
+#: ladder relaxes until enough frames survive. Measured on two Coursera lectures:
+#: slides 10/16 -> 15 frames; a 28-minute lab session 10/16 -> 4, 3/6 -> 23.
+THRESHOLD_LADDER = ((10, 16), (5, 10), (3, 6), (2, 4))
+
+
+def _min_useful_frames(duration_seconds: float, max_frames: int) -> int:
+    """At least one 3x3 sheet, roughly one frame per two minutes, never above max_frames."""
+    return max(1, min(max_frames, max(9, int(duration_seconds // 120))))
+
+
+def _select_keyframes(video_path: Path, keyframes_dir: Path, duration_seconds: float, *,
+                      max_frames: int, candidates: int) -> tuple[list[dict[str, Any]], tuple[int, int]]:
+    """Walk THRESHOLD_LADDER until enough distinct frames survive; return frames + thresholds used."""
+    wanted = _min_useful_frames(duration_seconds, max_frames)
+    frames: list[dict[str, Any]] = []
+    used = THRESHOLD_LADDER[0]
+    for similarity, diversity in THRESHOLD_LADDER:
+        shutil.rmtree(keyframes_dir, ignore_errors=True)
+        frames = extract_keyframes(
+            video_path,
+            output_dir=keyframes_dir,
+            max_frames=max_frames,
+            candidate_samples=candidates,
+            similarity_threshold=similarity,
+            min_diversity_threshold=diversity,
+        )
+        used = (similarity, diversity)
+        if len(frames) >= wanted:
+            break
+    return frames, used
+
+
+# ---------------------------------------------------------------------------
 # Video / URL path
 # ---------------------------------------------------------------------------
 
@@ -107,17 +146,10 @@ def process_video(
     info = get_video_info(video_path)
     index["video"] = {k: info[k] for k in ("duration_seconds", "duration_formatted", "resolution", "fps")}
     candidates = max(60, int(info["duration_seconds"] // 10) + 1)
-    # Thresholds tuned on talking-head lectures: 10/16 keeps slide changes and
-    # drops the near-identical speaker frames that the core default (5/10) lets through.
-    frames = extract_keyframes(
-        video_path,
-        output_dir=keyframes_dir,
-        max_frames=max_frames,
-        candidate_samples=candidates,
-        similarity_threshold=10,
-        min_diversity_threshold=16,
-    )
+    frames, thresholds = _select_keyframes(video_path, keyframes_dir, info["duration_seconds"],
+                                           max_frames=max_frames, candidates=candidates)
     index["keyframes"] = frames
+    index["keyframe_thresholds"] = {"similarity": thresholds[0], "min_diversity": thresholds[1]}
 
     # 3. storyboard
     _say("[3/3] Storyboard", quiet)

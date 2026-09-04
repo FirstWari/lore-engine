@@ -71,6 +71,8 @@ def test_local_video_with_srt_produces_full_folder(fake_pipeline, tmp_path):
     assert fake_pipeline["keyframes"]["output_dir"] == str(target / "keyframes")
     # ~10 s per candidate for a 20-minute video, never fewer than 60
     assert fake_pipeline["keyframes"]["candidate_samples"] == 124
+    # 2 fake frames < 9 wanted, so the ladder ran to its loosest rung
+    assert index["keyframe_thresholds"] == {"similarity": 2, "min_diversity": 4}
     saved = json.loads((target / "index.json").read_text(encoding="utf-8"))
     assert saved["title"] == "Lecture 1"
     assert saved["warnings"] == []
@@ -153,3 +155,30 @@ def test_unsupported_input_is_rejected(tmp_path):
     bad.write_text("x")
     with pytest.raises(ValueError):
         lore.run(str(bad), out=str(tmp_path / "r"), quiet=True)
+
+
+def test_threshold_ladder_stops_at_first_rung_with_enough_frames(tmp_path, monkeypatch):
+    attempts = []
+
+    def fake_keyframes(path, output_dir=None, max_frames=25, candidate_samples=60,
+                       similarity_threshold=5, min_diversity_threshold=10, **kw):
+        attempts.append((similarity_threshold, min_diversity_threshold))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        # strict rung finds 3 frames, the next one finds 12
+        n = 3 if similarity_threshold == 10 else 12
+        return [{"timestamp": f"00:00:{i:02d}", "seconds": i, "frame_index": i,
+                 "image_path": str(Path(output_dir) / f"f{i}.jpg")} for i in range(n)]
+
+    monkeypatch.setattr(lore, "extract_keyframes", fake_keyframes)
+    frames, used = lore._select_keyframes(tmp_path / "v.mp4", tmp_path / "kf", 1000.0,
+                                          max_frames=27, candidates=170)
+    assert attempts == [(10, 16), (5, 10)]
+    assert used == (5, 10)
+    assert len(frames) == 12
+
+
+def test_min_useful_frames_scales_with_duration():
+    assert lore._min_useful_frames(60, 27) == 9        # short clip: one sheet
+    assert lore._min_useful_frames(1728, 27) == 14     # 28 min: one per two minutes
+    assert lore._min_useful_frames(36000, 27) == 27    # capped at max_frames
+    assert lore._min_useful_frames(1728, 5) == 5
