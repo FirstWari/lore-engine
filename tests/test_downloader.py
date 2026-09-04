@@ -1,8 +1,8 @@
-"""Unit tests for src.core.downloader (no network)."""
+"""Unit tests for lore_engine.downloader (no network)."""
 
 import pytest
 
-from src.core import downloader
+from lore_engine import downloader
 
 
 class TestRouting:
@@ -14,20 +14,24 @@ class TestRouting:
 
     def test_download_lecture_routes_coursera(self, monkeypatch):
         calls = {}
-        monkeypatch.setattr(downloader, "download_coursera_media",
-                            lambda url, **kw: calls.setdefault("coursera", (url, kw)))
-        monkeypatch.setattr(downloader, "download_with_ytdlp",
-                            lambda url, **kw: calls.setdefault("ytdlp", (url, kw)))
+        monkeypatch.setattr(
+            downloader, "download_coursera_media", lambda url, **kw: calls.setdefault("coursera", (url, kw))
+        )
+        monkeypatch.setattr(
+            downloader, "download_with_ytdlp", lambda url, **kw: calls.setdefault("ytdlp", (url, kw))
+        )
         downloader.download_lecture("https://www.coursera.org/learn/c/lecture/i/t", quality="540p")
         assert "coursera" in calls and "ytdlp" not in calls
         assert calls["coursera"][1]["quality"] == "540p"
 
     def test_download_lecture_routes_other_sites_to_ytdlp(self, monkeypatch):
         calls = {}
-        monkeypatch.setattr(downloader, "download_coursera_media",
-                            lambda url, **kw: calls.setdefault("coursera", url))
-        monkeypatch.setattr(downloader, "download_with_ytdlp",
-                            lambda url, **kw: calls.setdefault("ytdlp", url))
+        monkeypatch.setattr(
+            downloader, "download_coursera_media", lambda url, **kw: calls.setdefault("coursera", url)
+        )
+        monkeypatch.setattr(
+            downloader, "download_with_ytdlp", lambda url, **kw: calls.setdefault("ytdlp", url)
+        )
         downloader.download_lecture("https://www.youtube.com/watch?v=jNQXAC9IVRw")
         assert calls == {"ytdlp": "https://www.youtube.com/watch?v=jNQXAC9IVRw"}
 

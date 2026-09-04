@@ -28,16 +28,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Make `src` importable when run as `python lore.py` from a clone.
+# Make the package importable when run as `python lore.py` from a clone.
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.core.downloader import download_lecture, sanitize_filename  # noqa: E402
-from src.core.pdf import extract_pdf_content, get_pdf_info  # noqa: E402
-from src.core.storyboard import compile_storyboard_sheets  # noqa: E402
-from src.core.transcripts import get_transcript_segment, get_transcript_summary  # noqa: E402
-from src.core.video import extract_keyframes, get_video_info  # noqa: E402
+from lore_engine.downloader import download_lecture, sanitize_filename  # noqa: E402
+from lore_engine.pdf import extract_pdf_content, get_pdf_info  # noqa: E402
+from lore_engine.storyboard import compile_storyboard_sheets  # noqa: E402
+from lore_engine.transcripts import get_transcript_segment, get_transcript_summary  # noqa: E402
+from lore_engine.video import extract_keyframes, get_video_info  # noqa: E402
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".m4v"}
 _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
@@ -69,8 +69,9 @@ def _min_useful_frames(duration_seconds: float, max_frames: int) -> int:
     return max(1, min(max_frames, max(9, int(duration_seconds // 120))))
 
 
-def _select_keyframes(video_path: Path, keyframes_dir: Path, duration_seconds: float, *,
-                      max_frames: int, candidates: int) -> tuple[list[dict[str, Any]], tuple[int, int]]:
+def _select_keyframes(
+    video_path: Path, keyframes_dir: Path, duration_seconds: float, *, max_frames: int, candidates: int
+) -> tuple[list[dict[str, Any]], tuple[int, int]]:
     """Walk THRESHOLD_LADDER until enough distinct frames survive; return frames + thresholds used."""
     wanted = _min_useful_frames(duration_seconds, max_frames)
     frames: list[dict[str, Any]] = []
@@ -94,6 +95,7 @@ def _select_keyframes(video_path: Path, keyframes_dir: Path, duration_seconds: f
 # ---------------------------------------------------------------------------
 # Video / URL path
 # ---------------------------------------------------------------------------
+
 
 def process_video(
     video_path: Path,
@@ -146,14 +148,17 @@ def process_video(
     info = get_video_info(video_path)
     index["video"] = {k: info[k] for k in ("duration_seconds", "duration_formatted", "resolution", "fps")}
     candidates = max(60, int(info["duration_seconds"] // 10) + 1)
-    frames, thresholds = _select_keyframes(video_path, keyframes_dir, info["duration_seconds"],
-                                           max_frames=max_frames, candidates=candidates)
+    frames, thresholds = _select_keyframes(
+        video_path, keyframes_dir, info["duration_seconds"], max_frames=max_frames, candidates=candidates
+    )
     index["keyframes"] = frames
     index["keyframe_thresholds"] = {"similarity": thresholds[0], "min_diversity": thresholds[1]}
 
     # 3. storyboard
     _say("[3/3] Storyboard", quiet)
-    sheets = compile_storyboard_sheets(frames, output_dir=target, title=f"{title} Storyboard", prefix="storyboard")
+    sheets = compile_storyboard_sheets(
+        frames, output_dir=target, title=f"{title} Storyboard", prefix="storyboard"
+    )
     index["storyboard_pages"] = sheets
 
     _write_json(target / "index.json", index)
@@ -164,7 +169,10 @@ def process_video(
 # PDF path
 # ---------------------------------------------------------------------------
 
-def process_pdf(pdf_path: Path, out_root: Path, *, max_frames: int = 27, quiet: bool = False) -> dict[str, Any]:
+
+def process_pdf(
+    pdf_path: Path, out_root: Path, *, max_frames: int = 27, quiet: bool = False
+) -> dict[str, Any]:
     """Extract page text and page images from a PDF, plus contact sheets."""
     title = sanitize_filename(pdf_path.stem)
     target = out_root / title
@@ -207,6 +215,7 @@ def process_pdf(pdf_path: Path, out_root: Path, *, max_frames: int = 27, quiet: 
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def run(
     target: str,
     *,
@@ -225,8 +234,15 @@ def run(
         dl = download_lecture(target, output_dir=None, cookie_file=cookies, sub_lang=lang, quality=quality)
         video = Path(dl["video_path"])
         srt = Path(dl["srt_path"]) if dl.get("srt_path") else None
-        index = process_video(video, srt, out_root, title=dl.get("title"), max_frames=max_frames,
-                              quiet=quiet, source={"url": target, **dl})
+        index = process_video(
+            video,
+            srt,
+            out_root,
+            title=dl.get("title"),
+            max_frames=max_frames,
+            quiet=quiet,
+            source={"url": target, **dl},
+        )
         if dl.get("subtitle_error"):
             index["warnings"].append(f"subtitle download failed: {dl['subtitle_error']}")
             _write_json(Path(index["output_dir"]) / "index.json", index)
@@ -240,7 +256,9 @@ def run(
         return process_pdf(path, out_root, max_frames=max_frames, quiet=quiet)
     if suffix in VIDEO_EXTENSIONS:
         srt = path.with_suffix(".srt")
-        return process_video(path, srt if srt.exists() else None, out_root, max_frames=max_frames, quiet=quiet)
+        return process_video(
+            path, srt if srt.exists() else None, out_root, max_frames=max_frames, quiet=quiet
+        )
     if suffix == ".srt":
         raise ValueError("Give the video file; its .srt next to it is picked up automatically.")
     raise ValueError(f"Unsupported input: {target} (expected a URL, a video file or a PDF)")
@@ -251,12 +269,20 @@ def main(argv: list[str] | None = None) -> int:
         prog="lore",
         description="Turn a lecture URL, video or PDF into transcript.txt + keyframes + storyboard sheets.",
     )
-    parser.add_argument("input", help="Coursera/YouTube/any URL, a local video (.srt beside it is used) or a PDF")
+    parser.add_argument(
+        "input", help="Coursera/YouTube/any URL, a local video (.srt beside it is used) or a PDF"
+    )
     parser.add_argument("--out", default="results", help="results root (default: results)")
     parser.add_argument("--quality", default="720p", help="video quality for downloads (default: 720p)")
     parser.add_argument("--lang", default="en", help="subtitle language for downloads (default: en)")
-    parser.add_argument("--cookies", default=None, help="Netscape cookies.txt for Coursera (default: COURSERA_COOKIE_FILE or www.coursera.org_cookies.txt)")
-    parser.add_argument("--max-frames", type=int, default=27, help="max keyframes to keep (default: 27 = 3 storyboard pages)")
+    parser.add_argument(
+        "--cookies",
+        default=None,
+        help="Netscape cookies.txt for Coursera (default: COURSERA_COOKIE_FILE or www.coursera.org_cookies.txt)",
+    )
+    parser.add_argument(
+        "--max-frames", type=int, default=27, help="max keyframes to keep (default: 27 = 3 storyboard pages)"
+    )
     parser.add_argument("--json", action="store_true", help="print only the final JSON line")
     args = parser.parse_args(argv)
 
