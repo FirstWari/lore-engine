@@ -364,6 +364,10 @@ def ytdlp_options(url: str, *, cookie_file: Path | None) -> dict[str, Any]:
     clients = os.getenv("LORE_YT_PLAYER_CLIENTS", "").strip()
     if clients and _PLAYER_CLIENTS_RE.match(clients):
         extractor_args["youtube"] = {"player_client": clients.split(",")}
+    elif cookie_file is not None:
+        # Logged-in web clients get SABR-only streams (no adaptive URLs -> 360p). yt-dlp maintainers'
+        # workaround (#12482): the mweb client + a PO Token provider. Measured 2026-09-05: 720p again.
+        extractor_args["youtube"] = {"player_client": ["mweb", "web"]}
     if extractor_args:
         opts["extractor_args"] = extractor_args
     imp = os.getenv("LORE_IMPERSONATE", "").strip()
@@ -375,6 +379,18 @@ def ytdlp_options(url: str, *, cookie_file: Path | None) -> dict[str, Any]:
         except Exception:  # noqa: BLE001 - curl_cffi missing or bad target: run without
             pass
     return opts
+
+
+def format_string(height: int, has_ffmpeg: bool) -> str:
+    """Prefer H.264 (avc1) MP4 video <= height + m4a audio (fast, universally decodable), then any MP4,
+    then progressive. Audio track: yt-dlp ranks the 'original (default)' language first by itself."""
+    if not has_ffmpeg:
+        return f"best[height<={height}][ext=mp4]/best[height<={height}]/best"
+    return (
+        f"bestvideo[height<={height}][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/"
+        f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/"
+        f"best[height<={height}]/best"
+    )
 
 
 def pick_youtube_language(info: dict[str, Any], preferred: str = "auto") -> list[str]:
@@ -415,11 +431,7 @@ def download_with_ytdlp(
     out_dir = resolve_workspace_dir(output_dir)
     height = int(re.sub(r"\D", "", quality) or 720)
     has_ffmpeg = shutil.which("ffmpeg") is not None
-    fmt = (
-        f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}]/best"
-        if has_ffmpeg
-        else f"best[height<={height}][ext=mp4]/best[height<={height}]/best"
-    )
+    fmt = format_string(height, has_ffmpeg)
     cookies = youtube_cookie_file(cookie_file, url)
     _daily_cap_check(url)
 

@@ -121,6 +121,21 @@ class TestYtdlpOptions:
         opts = downloader.ytdlp_options(self.YT, cookie_file=None)
         assert "extractor_args" not in opts and "impersonate" not in opts
 
+    def test_default_clients_only_with_cookies(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("LORE_YT_PLAYER_CLIENTS", raising=False)
+        assert "youtube" not in downloader.ytdlp_options(self.YT, cookie_file=None).get("extractor_args", {})
+        opts = downloader.ytdlp_options(self.YT, cookie_file=tmp_path / "c.txt")
+        assert opts["extractor_args"]["youtube"]["player_client"] == ["mweb", "web"]
+        monkeypatch.setenv("LORE_YT_PLAYER_CLIENTS", "tv,web")
+        opts = downloader.ytdlp_options(self.YT, cookie_file=tmp_path / "c.txt")
+        assert opts["extractor_args"]["youtube"]["player_client"] == ["tv", "web"]
+
+    def test_format_string_prefers_avc1(self):
+        f = downloader.format_string(720, True)
+        assert f.startswith("bestvideo[height<=720][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/")
+        assert "best[height<=720]/best" in f
+        assert downloader.format_string(480, False) == "best[height<=480][ext=mp4]/best[height<=480]/best"
+
     def test_sleeps_on_by_default(self, monkeypatch):
         monkeypatch.delenv("LORE_NO_SLEEP", raising=False)
         opts = downloader.ytdlp_options(self.YT, cookie_file=None)
