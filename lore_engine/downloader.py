@@ -209,6 +209,42 @@ def vtt_to_srt(vtt_text: str) -> str:
     return "\n".join(f"{i}\n{timing}\n{text}\n" for i, (timing, text) in enumerate(deduped, 1))
 
 
+
+def _politeness_opts() -> dict[str, Any]:
+    """yt-dlp options that make the downloader look less like a scraper.
+
+    Defaults: small random sleeps between requests/downloads and a rate limit.
+    Overrides via env:
+      LORE_USER_AGENT           - browser UA to send (match the machine's real browser)
+      LORE_YTDLP_OPTS_JSON      - JSON object merged last into the yt-dlp options, e.g.
+        {"extractor_args": {"youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]}}}
+      LORE_NO_SLEEP=1           - disable the default sleeps (tests)
+    """
+    import json
+    import os
+
+    opts: dict[str, Any] = {}
+    if os.environ.get("LORE_NO_SLEEP") != "1":
+        opts.update({
+            "sleep_interval_requests": 1.0,
+            "sleep_interval": 2.0,
+            "max_sleep_interval": 6.0,
+            "ratelimit": 5_000_000,  # bytes/s
+            "retries": 3,
+        })
+    ua = os.environ.get("LORE_USER_AGENT")
+    if ua:
+        opts["http_headers"] = {"User-Agent": ua}
+    raw = os.environ.get("LORE_YTDLP_OPTS_JSON")
+    if raw:
+        try:
+            extra = json.loads(raw)
+            if isinstance(extra, dict):
+                opts.update(extra)
+        except json.JSONDecodeError:
+            pass
+    return opts
+
 def download_with_ytdlp(
     url: str,
     output_dir: str | None = None,
@@ -246,6 +282,7 @@ def download_with_ytdlp(
     cookie_path = resolve_cookie_file(cookie_file)
     if cookie_path is not None:
         base_opts["cookiefile"] = str(cookie_path)
+    base_opts.update(_politeness_opts())
 
     # Pass 1: the video itself. Subtitles are deliberately NOT requested here so
     # a subtitle hiccup (YouTube rate-limits the auto-translated tracks) can
