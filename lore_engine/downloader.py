@@ -42,6 +42,10 @@ from .textsafe import clean_text, safe_id, sanitize_filename
 DEFAULT_WORKSPACE_DIR = "downloads"
 YOUTUBE_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com", "google.com")
 CDN_HOST_SUFFIXES = (".cloudfront.net", ".coursera.org", "coursera.org", ".coursera-assets.org", "coursera-assets.org")
+# lab notebooks / course files hosted by course providers (IBM Skills Network, Google) — download-only allowlist
+ASSET_HOST_SUFFIXES = CDN_HOST_SUFFIXES + (".cloud-object-storage.appdomain.cloud", ".googleusercontent.com", "storage.googleapis.com")
+_MD_IMG_RE = re.compile(r"!\[([^\]]*)\]\((https?://[^)\s]+)\)")
+_MD_FILE_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+\.(?:ipynb|pdf|pptx?|docx?|zip|csv|py)(?:\?[^)\s]*)?)\)", re.I)
 _PLAYER_CLIENTS_RE = re.compile(r"^[a-z_]+(,[a-z_]+)*$")
 _IMPERSONATE_RE = re.compile(r"^[a-z]+(-\d+)?(:[a-z0-9.-]+)?$")
 
@@ -204,6 +208,28 @@ def download_coursera_media(
         md_dest = out_dir / f"{clean_title}-{item_id}.reading.md"
         ext = page.get("external_links") or []
         ext_md = ("\n\n## External tools / labs\n" + "\n".join(f"- {u}" for u in ext) + "\n") if ext else ""
+        # embedded images and linked course files become local assets; links are rewritten to assets/<name>
+        assets_dir = out_dir / f"{clean_title}-{item_id}.assets"
+        for m in list(_MD_IMG_RE.finditer(md)) + list(_MD_FILE_LINK_RE.finditer(md)):
+            a_url = m.group(2)
+            try:
+                _check_download_url(a_url, allowed_suffixes=ASSET_HOST_SUFFIXES)
+            except ValueError:
+                continue
+            base = Path(urlparse(a_url).path).name or "asset"
+            name = sanitize_filename(base)[:80]
+            if not Path(name).suffix:
+                name += ".bin"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            dest = assets_dir / name
+            if not dest.exists():
+                try:
+                    size = download_file_chunks(a_url, dest, max_bytes=200 * 1024 * 1024)
+                    result["assets"].append({"name": name, "path": str(dest.resolve()), "bytes": size})
+                except Exception as exc:  # noqa: BLE001 - assets are optional
+                    result.setdefault("asset_errors", []).append(f"{name}: {exc.__class__.__name__}")
+                    continue
+            md = md.replace(m.group(0), f"[{m.group(1) or name}](assets/{name})" if m.re is _MD_FILE_LINK_RE else f"![{m.group(1) or name}](assets/{name})")
         md_dest.write_text(f"# {title}\n\nSource: {page.get('url') or url}\n\n{md}{ext_md}", encoding="utf-8")
         result.update({"video_path": None, "srt_path": None, "reading_md": str(md_dest.resolve())})
     else:
@@ -320,6 +346,8 @@ def ytdlp_options(url: str, *, cookie_file: Path | None) -> dict[str, Any]:
         "fragment_retries": 3,
         "noplaylist": True,
         "max_filesize": _max_media_bytes(),
+        # YouTube "n challenge" solver scripts, fetched from yt-dlp's own release page (needs deno/node).
+        "remote_components": {"ejs:github"},
     }
     if os.getenv("LORE_NO_SLEEP") != "1":
         opts.update({"sleep_interval_requests": 1.0, "sleep_interval": 2.0, "max_sleep_interval": 6.0,

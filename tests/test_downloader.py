@@ -112,6 +112,7 @@ class TestYtdlpOptions:
         assert opts["extractor_args"]["youtube"]["player_client"] == ["web", "default"]
         assert opts["http_headers"]["User-Agent"] == "UA/1.0"
         assert opts["retries"] == 3 and opts["socket_timeout"] == 30 and "sleep_interval" not in opts
+        assert opts["remote_components"] == {"ejs:github"}
 
     def test_bad_env_values_are_ignored(self, monkeypatch):
         monkeypatch.setenv("LORE_POT_BASE_URL", "http://evil.example/pot")
