@@ -31,12 +31,13 @@ def main() -> int:
     try:
         data = tab.evaluate(JS) or {"lectures": [], "readings": []}
         data["page"] = tab.evaluate("location.href + ' | ' + document.title")
-        data["sample"] = (tab.evaluate("document.body ? document.body.innerText.slice(0, 300) : ''") or "").replace("
-", " / ")
+        sample = tab.evaluate("document.body ? document.body.innerText.slice(0, 300) : ''") or ""
+        data["sample"] = " / ".join(sample.splitlines())
     finally:
         tab.close()
         cdp_fetch.close_target(tid)
-    print(json.dumps({k: v[:limit] for k, v in data.items()}, ensure_ascii=False))
+    out = {k: (v[:limit] if isinstance(v, list) else v) for k, v in data.items()}
+    print(json.dumps(out, ensure_ascii=False))
     return 0
 
 
