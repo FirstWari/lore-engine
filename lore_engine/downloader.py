@@ -216,10 +216,10 @@ def download_coursera_media(
                 _check_download_url(a_url, allowed_suffixes=ASSET_HOST_SUFFIXES)
             except ValueError:
                 continue
-            base = Path(urlparse(a_url).path).name or "asset"
-            name = sanitize_filename(base)[:80]
-            if not Path(name).suffix:
-                name += ".bin"
+            base = Path(urlparse(a_url).path)
+            if m.re is _MD_FILE_LINK_RE and base.suffix.lower() not in (".ipynb", ".pdf", ".ppt", ".pptx", ".doc", ".docx", ".zip", ".csv", ".py"):
+                continue  # extension must be in the URL path itself, not only in the query string
+            name = sanitize_filename(base.stem)[:70] + (base.suffix.lower()[:8] or ".bin")
             assets_dir.mkdir(parents=True, exist_ok=True)
             dest = assets_dir / name
             if not dest.exists():
@@ -347,7 +347,7 @@ def ytdlp_options(url: str, *, cookie_file: Path | None) -> dict[str, Any]:
         "noplaylist": True,
         "max_filesize": _max_media_bytes(),
         # YouTube "n challenge" solver scripts, fetched from yt-dlp's own release page (needs deno/node).
-        "remote_components": {"ejs:github"},
+        "remote_components": ["ejs:github"],
     }
     if os.getenv("LORE_NO_SLEEP") != "1":
         opts.update({"sleep_interval_requests": 1.0, "sleep_interval": 2.0, "max_sleep_interval": 6.0,
