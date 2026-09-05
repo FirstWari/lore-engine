@@ -225,12 +225,21 @@ def fetch_coursera_page(url: str, *, sub_lang: str | None = "auto", timeout: flo
                     break
         if not has_app:
             raise CourseraPageError("window.App not found on the page (not a course item page, or page format changed)")
+        # The item body renders after hydration: wait for the CML viewer / video / lab frame (max ~25 s).
+        ready_js = ("!!document.querySelector('[data-testid=\"cml-viewer\"], .rc-CML, video, "
+                    "[data-testid=\"course-frame-content\"], iframe[src^=\"http\"]')")
+        for _ in range(25):
+            if tab.evaluate(ready_js):
+                break
+            time.sleep(1.0)
+        time.sleep(1.0)
 
         data = tab.evaluate("""(() => {
           const stores = (((window.App.context || {}).dispatcher || {}).stores) || {};
           const vs = stores.VideoItemStore || {};
           const vd = vs.videoData || null;
-          const out = {title: document.title, url: location.href, video: vd, storeNames: Object.keys(stores)};
+          const h1 = document.querySelector('h1');
+          const out = {title: (h1 && h1.innerText.trim()) || document.title, url: location.href, video: vd, storeNames: Object.keys(stores)};
           // course/primary language hints (best effort, schema varies)
           const cand = [];
           const walk = (o, depth) => {
