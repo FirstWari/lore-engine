@@ -30,6 +30,9 @@ def main() -> int:
     tid, tab = cdp_fetch.open_page(url, timeout=60)
     try:
         data = tab.evaluate(JS) or {"lectures": [], "readings": []}
+        data["page"] = tab.evaluate("location.href + ' | ' + document.title")
+        data["sample"] = (tab.evaluate("document.body ? document.body.innerText.slice(0, 300) : ''") or "").replace("
+", " / ")
     finally:
         tab.close()
         cdp_fetch.close_target(tid)
