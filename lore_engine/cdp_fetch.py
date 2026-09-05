@@ -91,9 +91,12 @@ class _Tab:
             self._ctx = int(res["executionContextId"])
         return self._ctx
 
-    def evaluate(self, expression: str, *, await_promise: bool = False) -> Any:
+    def evaluate(self, expression: str, *, await_promise: bool = False, main_world: bool = False) -> Any:
+        """Evaluate JS. Default: the isolated world (DOM access, fetch with credentials, invisible to page
+        scripts). ``main_world=True`` reads page globals such as ``window.App`` — a plain Runtime.evaluate,
+        no Runtime.enable/Console.enable, so no CDP subscription is ever created."""
         params: dict[str, Any] = {"expression": expression, "returnByValue": True, "awaitPromise": await_promise}
-        if self._ctx is not None:
+        if self._ctx is not None and not main_world:
             params["contextId"] = self._ctx
         res = self.send("Runtime.evaluate", **params)
         if "exceptionDetails" in res:
@@ -192,12 +195,12 @@ def fetch_coursera_page(url: str, *, sub_lang: str | None = "auto", timeout: flo
     try:
         if _is_login_page(tab):
             raise CourseraSessionError("Coursera session is not logged in (login page shown); log in via noVNC")
-        has_app = tab.evaluate("!!window.App")
+        has_app = tab.evaluate("!!window.App", main_world=True)
         if not has_app:
             # SPA may still be hydrating
             for _ in range(10):
                 time.sleep(1.0)
-                if tab.evaluate("!!window.App"):
+                if tab.evaluate("!!window.App", main_world=True):
                     has_app = True
                     break
         if not has_app:
@@ -233,7 +236,7 @@ def fetch_coursera_page(url: str, *, sub_lang: str | None = "auto", timeout: flo
           }
           out.assets = assets.slice(0, 50);
           return out;
-        })()""")
+        })()""", main_world=True)
         if not data:
             raise CourseraPageError("could not read page state")
         kind = "lecture" if data.get("video") and (data["video"].get("sources") or {}).get("byResolution") else (

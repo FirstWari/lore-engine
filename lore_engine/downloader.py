@@ -147,7 +147,14 @@ def download_coursera_media(
     from . import cdp_fetch  # local import: websockets is optional
 
     out_dir = resolve_workspace_dir(output_dir)
+    url_kind = coursera_item_kind(url)
+    if url_kind == "other":
+        raise ValueError("Unsupported Coursera URL: give a /lecture/ (video) or /supplement/ (reading) item page.")
     page = cdp_fetch.fetch_coursera_page(url, sub_lang=sub_lang)
+    if url_kind == "lecture" and page["kind"] != "lecture":
+        raise cdp_fetch.CourseraPageError("lecture page has no video data (not enrolled, or page format changed)")
+    if url_kind == "reading":
+        page["kind"] = "reading" if page.get("reading_html") else "other"
     slug_match = re.search(r"/(?:lecture|supplement|reading)/[^/]+/([^/?#]+)", url)
     item_id = safe_id(slug_match.group(1) if slug_match else urlparse(url).path.rsplit("/", 1)[-1])
     title = clean_text(page.get("title") or "").split("|")[0].strip() or item_id
