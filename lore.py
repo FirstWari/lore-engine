@@ -229,7 +229,7 @@ def process_pdf(
 ) -> dict[str, Any]:
     """Extract page text and page images from a PDF, plus contact sheets."""
     title = sanitize_filename(pdf_path.stem)
-    target = out_root / title
+    target = _result_dir(out_root, title, None)
     pages_dir = target / "pages"
     target.mkdir(parents=True, exist_ok=True)
 

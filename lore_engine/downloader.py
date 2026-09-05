@@ -41,9 +41,16 @@ from .textsafe import clean_text, safe_id, sanitize_filename
 
 DEFAULT_WORKSPACE_DIR = "downloads"
 YOUTUBE_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com", "google.com")
-CDN_HOST_SUFFIXES = (".cloudfront.net", ".coursera.org", "coursera.org", ".coursera-assets.org", "coursera-assets.org")
-# lab notebooks / course files hosted by course providers (IBM Skills Network, Google) — download-only allowlist
-ASSET_HOST_SUFFIXES = CDN_HOST_SUFFIXES + (".cloud-object-storage.appdomain.cloud", ".googleusercontent.com", "storage.googleapis.com")
+# Coursera signs its media on a small set of CloudFront distributions; pin those hostnames, not all of
+# *.cloudfront.net. Extra hosts can be added via LORE_EXTRA_MEDIA_HOSTS (comma list) for a specific course.
+CDN_HOST_SUFFIXES = ("d3c33hcgiwev3.cloudfront.net", ".coursera.org", "coursera.org", ".coursera-assets.org", "coursera-assets.org")
+# lab notebooks hosted by known course providers (IBM Skills Network object storage). No bare googleusercontent.
+ASSET_HOST_SUFFIXES = CDN_HOST_SUFFIXES + (".cloud-object-storage.appdomain.cloud",)
+
+
+def _allowed_media_suffixes(base: tuple[str, ...]) -> tuple[str, ...]:
+    extra = tuple(h.strip().lower() for h in os.getenv("LORE_EXTRA_MEDIA_HOSTS", "").split(",") if h.strip())
+    return base + extra
 _MD_IMG_RE = re.compile(r"!\[([^\]]*)\]\((https?://[^)\s]+)\)")
 _MD_FILE_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+\.(?:ipynb|pdf|pptx?|docx?|zip|csv|py)(?:\?[^)\s]*)?)\)", re.I)
 _PLAYER_CLIENTS_RE = re.compile(r"^[a-z_]+(,[a-z_]+)*$")
@@ -114,13 +121,42 @@ def _check_download_url(url: str, *, allowed_suffixes: tuple[str, ...]) -> str:
     return url
 
 
+def _media_proxy() -> str | None:
+    """SOCKS/HTTP proxy for CDN media downloads (default: the same WARP proxy the browser uses)."""
+    return (os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY") or "").strip() or None
+
+
 def download_file_chunks(url: str, output_path: Path, *, timeout: float = 60.0, max_bytes: int | None = None) -> int:
-    """Stream a URL to disk with a size cap. Returns bytes written."""
+    """Stream a URL to disk with a size cap, through the WARP proxy when set. Returns bytes written."""
     max_bytes = max_bytes or _max_media_bytes()
     headers = {"User-Agent": _user_agent()} if _user_agent() else {}
-    req = urllib.request.Request(url, headers=headers)
+    proxy = _media_proxy()
     written = 0
-    with urllib.request.urlopen(req, timeout=timeout) as response, open(output_path, "wb") as out_file:
+    if proxy and proxy.startswith("socks"):
+        # urllib cannot do SOCKS; curl_cffi does, and also mimics a Chrome TLS fingerprint.
+        try:
+            from curl_cffi import requests as _creq
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("a SOCKS proxy is set but curl_cffi is missing: pip install 'lore-engine[stealth]'") from exc
+        with _creq.get(url, headers=headers, proxies={"http": proxy, "https": proxy},
+                       timeout=timeout, stream=True, impersonate="chrome", verify=True) as r:
+            r.raise_for_status()
+            cl = r.headers.get("Content-Length")
+            if cl and int(cl) > max_bytes:
+                raise ValueError(f"media too large ({int(cl) // (1024 * 1024)} MB > cap)")
+            with open(output_path, "wb") as out_file:
+                for chunk in r.iter_content(1024 * 1024):
+                    if not chunk:
+                        continue
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise ValueError("media exceeded size cap during download")
+                    out_file.write(chunk)
+        return written
+    req = urllib.request.Request(url, headers=headers)
+    handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy}) if proxy else urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(handler)
+    with opener.open(req, timeout=timeout) as response, open(output_path, "wb") as out_file:
         length = response.headers.get("Content-Length")
         if length and int(length) > max_bytes:
             raise ValueError(f"media too large ({int(length) // (1024 * 1024)} MB > cap)")
@@ -185,7 +221,7 @@ def download_coursera_media(
         video_url = entry.get("mp4VideoUrl") or entry.get("webMVideoUrl")
         if not video_url:
             raise ValueError(f"No downloadable stream for quality {chosen_res}.")
-        _check_download_url(video_url, allowed_suffixes=CDN_HOST_SUFFIXES)
+        _check_download_url(video_url, allowed_suffixes=_allowed_media_suffixes(CDN_HOST_SUFFIXES))
         ext = "mp4" if "mp4" in urlparse(video_url).path.lower() else "webm"
         video_dest = out_dir / f"{clean_title}-{item_id}.{ext}"
         download_file_chunks(video_url, video_dest)
@@ -213,7 +249,7 @@ def download_coursera_media(
         for m in list(_MD_IMG_RE.finditer(md)) + list(_MD_FILE_LINK_RE.finditer(md)):
             a_url = m.group(2)
             try:
-                _check_download_url(a_url, allowed_suffixes=ASSET_HOST_SUFFIXES)
+                _check_download_url(a_url, allowed_suffixes=_allowed_media_suffixes(ASSET_HOST_SUFFIXES))
             except ValueError:
                 continue
             base = Path(urlparse(a_url).path)
@@ -239,7 +275,7 @@ def download_coursera_media(
     assets_dir = out_dir / f"{clean_title}-{item_id}.assets"
     for asset in page.get("assets") or []:
         try:
-            a_url = _check_download_url(asset.get("url") or "", allowed_suffixes=CDN_HOST_SUFFIXES)
+            a_url = _check_download_url(asset.get("url") or "", allowed_suffixes=_allowed_media_suffixes(CDN_HOST_SUFFIXES))
         except ValueError:
             continue
         name = sanitize_filename(asset.get("name") or Path(urlparse(a_url).path).name or "asset")
@@ -346,9 +382,11 @@ def ytdlp_options(url: str, *, cookie_file: Path | None) -> dict[str, Any]:
         "fragment_retries": 3,
         "noplaylist": True,
         "max_filesize": _max_media_bytes(),
-        # YouTube "n challenge" solver scripts, fetched from yt-dlp's own release page (needs deno/node).
-        "remote_components": ["ejs:github"],
     }
+    # yt-dlp's EJS "n-challenge" solver DOWNLOADS and RUNS JS from yt-dlp's GitHub releases (deno/node).
+    # Off by default because it is remote code execution; the server wrapper opts in for YouTube 720p.
+    if os.getenv("LORE_YT_REMOTE_COMPONENTS", "").strip() in ("1", "ejs:github", "true"):
+        opts["remote_components"] = ["ejs:github"]
     if os.getenv("LORE_NO_SLEEP") != "1":
         opts.update({"sleep_interval_requests": 1.0, "sleep_interval": 2.0, "max_sleep_interval": 6.0,
                      "ratelimit": 5_000_000})

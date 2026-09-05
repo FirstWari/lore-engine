@@ -112,7 +112,7 @@ class TestYtdlpOptions:
         assert opts["extractor_args"]["youtube"]["player_client"] == ["web", "default"]
         assert opts["http_headers"]["User-Agent"] == "UA/1.0"
         assert opts["retries"] == 3 and opts["socket_timeout"] == 30 and "sleep_interval" not in opts
-        assert opts["remote_components"] == ["ejs:github"]
+        assert "remote_components" not in opts  # off unless LORE_YT_REMOTE_COMPONENTS is set
 
     def test_bad_env_values_are_ignored(self, monkeypatch):
         monkeypatch.setenv("LORE_POT_BASE_URL", "http://evil.example/pot")
@@ -129,6 +129,12 @@ class TestYtdlpOptions:
         monkeypatch.setenv("LORE_YT_PLAYER_CLIENTS", "tv,web")
         opts = downloader.ytdlp_options(self.YT, cookie_file=tmp_path / "c.txt")
         assert opts["extractor_args"]["youtube"]["player_client"] == ["tv", "web"]
+
+    def test_remote_components_opt_in(self, monkeypatch):
+        monkeypatch.delenv("LORE_YT_REMOTE_COMPONENTS", raising=False)
+        assert "remote_components" not in downloader.ytdlp_options(self.YT, cookie_file=None)
+        monkeypatch.setenv("LORE_YT_REMOTE_COMPONENTS", "1")
+        assert downloader.ytdlp_options(self.YT, cookie_file=None)["remote_components"] == ["ejs:github"]
 
     def test_format_string_prefers_avc1(self):
         f = downloader.format_string(720, True)
@@ -183,9 +189,15 @@ class TestUrlAllowlist:
     def test_cdn_allowlist(self):
         ok = downloader._check_download_url("https://d3c33hcgiwev3.cloudfront.net/x.mp4?Signature=1", allowed_suffixes=downloader.CDN_HOST_SUFFIXES)
         assert ok.startswith("https://")
-        for bad in ("http://d3c33hcgiwev3.cloudfront.net/x.mp4", "file:///etc/passwd", "https://evil.example/x.mp4", "https://cloudfront.net.evil.com/x"):
+        for bad in ("http://d3c33hcgiwev3.cloudfront.net/x.mp4", "file:///etc/passwd", "https://evil.example/x.mp4",
+                    "https://cloudfront.net.evil.com/x", "https://attacker.cloudfront.net/x.mp4"):
             with pytest.raises(ValueError):
                 downloader._check_download_url(bad, allowed_suffixes=downloader.CDN_HOST_SUFFIXES)
+
+    def test_extra_media_hosts_env(self, monkeypatch):
+        monkeypatch.setenv("LORE_EXTRA_MEDIA_HOSTS", "media.example.edu")
+        sfx = downloader._allowed_media_suffixes(downloader.CDN_HOST_SUFFIXES)
+        assert downloader._check_download_url("https://media.example.edu/x.mp4", allowed_suffixes=sfx)
 
 
 class TestTextSafe:

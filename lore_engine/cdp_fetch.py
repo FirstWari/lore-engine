@@ -312,6 +312,9 @@ def fetch_text_in_browser(page_url: str, resource_url: str, *, timeout: float = 
 
     The request carries the browser's cookies/UA/TLS; Python never sees the session.
     """
+    host = (urllib.parse.urlparse(resource_url).hostname or "").lower()
+    if not host.endswith("coursera.org"):
+        raise CourseraPageError(f"refusing in-browser fetch of non-Coursera host: {host}")
     target_id, tab = open_page(page_url, settle_sec=1.0, timeout=timeout)
     try:
         js = (
