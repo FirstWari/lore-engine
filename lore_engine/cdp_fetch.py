@@ -64,6 +64,7 @@ class _Tab:
         self.timeout = timeout
         self._id = 0
         self._ctx: int | None = None
+        self.frame_id: str | None = None
 
     def close(self) -> None:
         try:
@@ -98,7 +99,17 @@ class _Tab:
         params: dict[str, Any] = {"expression": expression, "returnByValue": True, "awaitPromise": await_promise}
         if self._ctx is not None and not main_world:
             params["contextId"] = self._ctx
-        res = self.send("Runtime.evaluate", **params)
+        try:
+            res = self.send("Runtime.evaluate", **params)
+        except CdpError as exc:
+            if "Cannot find context" in str(exc) and self.frame_id and not main_world:
+                # the document was replaced (SPA redirect); rebuild the isolated world once
+                self._ctx = None
+                self.frame_id = self.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
+                params["contextId"] = self.isolated_context(self.frame_id)
+                res = self.send("Runtime.evaluate", **params)
+            else:
+                raise
         if "exceptionDetails" in res:
             raise CdpError(f"evaluate failed: {res['exceptionDetails'].get('text')}")
         return res.get("result", {}).get("value")
@@ -117,13 +128,22 @@ def open_page(url: str, *, settle_sec: float = 3.0, timeout: float = 60.0) -> tu
         # frame id for the isolated world; Page.getFrameTree needs no Page.enable
         frame_id = tab.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
         deadline = time.time() + timeout
+        last_url, stable = None, 0
         while time.time() < deadline:
-            state = tab.send("Runtime.evaluate", expression="document.readyState", returnByValue=True)
-            if state.get("result", {}).get("value") == "complete":
-                break
+            state = tab.send("Runtime.evaluate", expression="document.readyState + ' ' + location.href", returnByValue=True)
+            value = state.get("result", {}).get("value") or ""
+            ready, _, cur_url = value.partition(" ")
+            if ready == "complete" and cur_url == last_url:
+                stable += 1
+                if stable >= 2:  # same URL for two polls: SPA redirects have settled
+                    break
+            else:
+                stable = 0
+            last_url = cur_url
             time.sleep(0.5)
         time.sleep(settle_sec)
-        tab.isolated_context(frame_id)
+        tab.frame_id = tab.send("Page.getFrameTree")["frameTree"]["frame"]["id"]
+        tab.isolated_context(tab.frame_id)
         return target_id, tab
     except Exception:
         tab.close()
