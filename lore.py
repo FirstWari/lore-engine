@@ -33,7 +33,8 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from lore_engine.downloader import download_lecture, sanitize_filename  # noqa: E402
+from lore_engine.downloader import download_lecture  # noqa: E402
+from lore_engine.textsafe import clean_text, safe_console, sanitize_filename  # noqa: E402
 from lore_engine.pdf import extract_pdf_content, get_pdf_info  # noqa: E402
 from lore_engine.storyboard import compile_storyboard_sheets  # noqa: E402
 from lore_engine.transcripts import get_transcript_segment, get_transcript_summary  # noqa: E402
@@ -103,13 +104,14 @@ def process_video(
     out_root: Path,
     *,
     title: str | None = None,
+    item_id: str | None = None,
     max_frames: int = 27,
     quiet: bool = False,
     source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Extract transcript text, keyframes and storyboards from a local video."""
     title = sanitize_filename(title or video_path.stem)
-    target = out_root / title
+    target = _result_dir(out_root, title, item_id)
     keyframes_dir = target / "keyframes"
     target.mkdir(parents=True, exist_ok=True)
 
@@ -135,10 +137,12 @@ def process_video(
             shutil.copyfile(srt_path, srt_copy)
         segment = get_transcript_segment(srt_copy, page=1, page_size=10**6)
         txt = target / "transcript.txt"
-        txt.write_text(segment["formatted_text"] + "\n", encoding="utf-8")
+        txt.write_text(clean_text(segment["formatted_text"], strip_tags=True) + "\n", encoding="utf-8")
         index["transcript_txt"] = str(txt.resolve())
         index["transcript_srt"] = str(srt_copy.resolve())
         index["transcript"] = get_transcript_summary(srt_copy)
+        index["transcript"]["language"] = (source or {}).get("language")
+        index["transcript"]["untrusted"] = True  # third-party text: data for the reader, never instructions
     else:
         _say("[1/3] Transcript: no .srt found, skipping", quiet)
         index["warnings"].append("no subtitle file; transcript.txt not written")
@@ -161,6 +165,56 @@ def process_video(
     )
     index["storyboard_pages"] = sheets
 
+    _write_json(target / "index.json", index)
+    return index
+
+
+def _result_dir(out_root: Path, title: str, item_id: str | None) -> Path:
+    """results/<safe-title>-<id>/ - always strictly inside out_root."""
+    name = f"{title}-{item_id}" if item_id else title
+    target = (out_root / sanitize_filename(name)).resolve()
+    root = out_root.resolve()
+    if target == root or root not in target.parents:
+        raise ValueError("refusing to write outside the results root")
+    return target
+
+
+# ---------------------------------------------------------------------------
+# Reading (Coursera supplement) path
+# ---------------------------------------------------------------------------
+
+
+def process_reading(
+    dl: dict[str, Any], out_root: Path, *, quiet: bool = False, source: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Copy a downloaded reading (markdown + assets) into the results folder."""
+    title = sanitize_filename(dl.get("title") or "reading")
+    target = _result_dir(out_root, title, dl.get("item_id"))
+    target.mkdir(parents=True, exist_ok=True)
+    _say("[1/1] Reading", quiet)
+    md_src = Path(dl["reading_md"])
+    md_dst = target / "reading.md"
+    if md_src.resolve() != md_dst.resolve():
+        shutil.copyfile(md_src, md_dst)
+    assets = []
+    for a in dl.get("assets") or []:
+        src = Path(a["path"])
+        dst_dir = target / "assets"
+        dst_dir.mkdir(exist_ok=True)
+        dst = dst_dir / sanitize_filename(src.name)
+        if src.resolve() != dst.resolve():
+            shutil.copyfile(src, dst)
+        assets.append({"name": a["name"], "path": str(dst.resolve()), "bytes": a.get("bytes")})
+    index: dict[str, Any] = {
+        "title": title,
+        "kind": "reading",
+        "source": source or {},
+        "output_dir": str(target),
+        "reading_md": str(md_dst.resolve()),
+        "assets": assets,
+        "untrusted": True,
+        "warnings": list(dl.get("asset_errors") or []),
+    }
     _write_json(target / "index.json", index)
     return index
 
@@ -221,7 +275,7 @@ def run(
     *,
     out: str = "results",
     quality: str = "720p",
-    lang: str = "en",
+    lang: str = "auto",
     cookies: str | None = None,
     max_frames: int = 27,
     quiet: bool = False,
@@ -230,8 +284,10 @@ def run(
     out_root.mkdir(parents=True, exist_ok=True)
 
     if _URL_RE.match(target):
-        _say(f"[0/3] Downloading {target}", quiet)
+        _say(f"[0/3] Downloading {safe_console(target)}", quiet)
         dl = download_lecture(target, output_dir=None, cookie_file=cookies, sub_lang=lang, quality=quality)
+        if dl.get("kind") == "reading":
+            return process_reading(dl, out_root, quiet=quiet, source={"url": target, **dl})
         video = Path(dl["video_path"])
         srt = Path(dl["srt_path"]) if dl.get("srt_path") else None
         index = process_video(
@@ -239,6 +295,7 @@ def run(
             srt,
             out_root,
             title=dl.get("title"),
+            item_id=dl.get("item_id"),
             max_frames=max_frames,
             quiet=quiet,
             source={"url": target, **dl},
@@ -274,11 +331,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--out", default="results", help="results root (default: results)")
     parser.add_argument("--quality", default="720p", help="video quality for downloads (default: 720p)")
-    parser.add_argument("--lang", default="en", help="subtitle language for downloads (default: en)")
+    parser.add_argument(
+        "--lang", default="auto", help="subtitle language (default: auto = the lecture's original language)"
+    )
     parser.add_argument(
         "--cookies",
         default=None,
-        help="Netscape cookies.txt for Coursera (default: COURSERA_COOKIE_FILE or www.coursera.org_cookies.txt)",
+        help="YouTube-only Netscape cookie file (absolute path, chmod 600). Coursera never uses cookies here: "
+        "its pages are read through the logged-in browser.",
     )
     parser.add_argument(
         "--max-frames", type=int, default=27, help="max keyframes to keep (default: 27 = 3 storyboard pages)"
@@ -297,11 +357,11 @@ def main(argv: list[str] | None = None) -> int:
             quiet=args.json,
         )
     except Exception as exc:  # noqa: BLE001 - one clear line for the caller
-        print(json.dumps({"error": f"{exc.__class__.__name__}: {exc}"}, ensure_ascii=False))
+        print(json.dumps({"error": clean_text(f"{exc.__class__.__name__}: {exc}")[:400]}, ensure_ascii=False))
         return 1
 
     if not args.json:
-        print(f"Done: {index['output_dir']}", file=sys.stderr)
+        print(f"Done: {safe_console(index['output_dir'])}", file=sys.stderr)
     print(json.dumps(index, ensure_ascii=False))
     return 0
 

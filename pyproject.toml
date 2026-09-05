@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lore-engine"
-version = "0.3.0"
+version = "0.4.0"
 description = "One command turns a lecture (URL, video or PDF) into transcript + keyframes + storyboards for an AI agent to read"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "Slydite", email = "slydite@gmail.com"}]
+authors = [{name = "FirstWari"}]
+maintainers = [{name = "FirstWari"}]
 keywords = ["education", "lecture", "notes", "transcript", "keyframes", "storyboard", "agent-skill", "yt-dlp", "coursera"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -34,11 +35,17 @@ dev = [
     "pytest>=8.4.2",
     "ruff>=0.14.0",
 ]
+browser = [
+    "websockets>=12",
+]
+stealth = [
+    "curl_cffi>=0.11",
+]
 
 [project.urls]
-Homepage = "https://github.com/Slydite/lore-engine"
-Repository = "https://github.com/Slydite/lore-engine"
-Issues = "https://github.com/Slydite/lore-engine/issues"
+Homepage = "https://github.com/FirstWari/lore-engine"
+Repository = "https://github.com/FirstWari/lore-engine"
+Issues = "https://github.com/FirstWari/lore-engine/issues"
 
 [project.scripts]
 lore = "lore:main"

@@ -1,36 +1,54 @@
-"""Media downloading module (Coursera + any yt-dlp supported site) for lore-engine.
+"""Media downloading for lore-engine: Coursera through the real browser, everything else via yt-dlp.
 
-Two download paths share one public entry point, :func:`download_lecture`:
+Design rules (see SKILL.md "Security"):
 
-* **Coursera** lecture pages need the learner's exported browser cookies
-  (Netscape ``cookies.txt`` format). The page's ``window.App`` state carries the
-  direct MP4 and subtitle URLs, so the download is a plain authenticated GET.
-* **Everything else** (YouTube, Vimeo, university media servers, ...) goes
-  through ``yt-dlp``, optionally with the same cookies file.
+* **Coursera**: the lecture/reading page and the subtitle file are read through the
+  user's logged-in Chromium over CDP (:mod:`lore_engine.cdp_fetch`). Python never sends
+  Coursera cookies; only the signed CDN media URL is downloaded from Python.
+* **yt-dlp** (YouTube & co.): options come from a small allowlist of environment
+  variables — there is no generic "options JSON" hook. Cookies are used only when
+  ``LORE_YT_COOKIES`` points at an existing, private (0600) Netscape file, and only for
+  YouTube URLs. A daily download cap protects the account.
+* All remote-derived strings go through :mod:`lore_engine.textsafe` before they become
+  paths or output.
 
-Defaults come from the environment so a caller only has to pass the URL:
-``LORE_WORKSPACE_DIR`` (output directory, default ``downloads``) and
-``COURSERA_COOKIE_FILE`` (cookies path, default ``www.coursera.org_cookies.txt``
-then ``cookies.txt``).
+Environment:
+    LORE_WORKSPACE_DIR   where media lands (default ``downloads``)
+    LORE_USER_AGENT      UA for CDN downloads and yt-dlp (should match the browser)
+    LORE_YT_COOKIES      YouTube-only Netscape cookie file (0600). Optional.
+    LORE_POT_BASE_URL    bgutil PO-token provider (e.g. http://127.0.0.1:4416). Optional.
+    LORE_YT_PLAYER_CLIENTS  comma list, ``[a-z_,]`` only (e.g. ``web,default``). Optional.
+    LORE_IMPERSONATE     yt-dlp impersonation target (``chrome``, ``chrome-136``). Optional.
+    LORE_YT_DAILY_MAX    max YouTube downloads per day (default 12; 0 = unlimited)
+    LORE_MAX_MEDIA_MB    refuse media larger than this (default 2048)
+    LORE_STATE_DIR       counters (default ``<workspace>/.state``)
+    LORE_NO_SLEEP=1      disable the polite sleeps (tests)
 """
 
-import http.cookiejar
+from __future__ import annotations
+
+import datetime as _dt
 import json
 import os
 import re
+import stat
 import urllib.request
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .textsafe import clean_text, safe_id, sanitize_filename
+
 DEFAULT_WORKSPACE_DIR = "downloads"
-DEFAULT_COOKIE_CANDIDATES = ("www.coursera.org_cookies.txt", "cookies.txt")
-_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+YOUTUBE_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com", "google.com")
+CDN_HOST_SUFFIXES = (".cloudfront.net", ".coursera.org", "coursera.org", ".coursera-assets.org", "coursera-assets.org")
+_PLAYER_CLIENTS_RE = re.compile(r"^[a-z_]+(,[a-z_]+)*$")
+_IMPERSONATE_RE = re.compile(r"^[a-z]+(-\d+)?(:[a-z0-9.-]+)?$")
 
 
-def sanitize_filename(name: str) -> str:
-    """Sanitize strings for filesystem filenames."""
-    return re.sub(r"[\\/*?:\"<>|]", "_", name).strip()
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 
 def resolve_workspace_dir(output_dir: str | Path | None = None) -> Path:
@@ -41,31 +59,23 @@ def resolve_workspace_dir(output_dir: str | Path | None = None) -> Path:
     return path
 
 
-def resolve_cookie_file(cookie_file: str | Path | None = None, required: bool = False) -> Path | None:
-    """Locate a Netscape cookies file: explicit arg > ``COURSERA_COOKIE_FILE`` > defaults.
+def _state_dir() -> Path:
+    p = Path(os.getenv("LORE_STATE_DIR") or (resolve_workspace_dir() / ".state"))
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
-    Returns ``None`` when nothing exists and ``required`` is False; raises
-    ``FileNotFoundError`` naming every candidate when ``required`` is True.
-    """
-    candidates = []
-    if cookie_file:
-        candidates.append(Path(cookie_file))
-    env_value = os.getenv("COURSERA_COOKIE_FILE")
-    if env_value:
-        candidates.append(Path(env_value))
-    candidates.extend(Path(c) for c in DEFAULT_COOKIE_CANDIDATES)
 
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    if required:
-        tried = ", ".join(str(c) for c in candidates)
-        raise FileNotFoundError(
-            "Coursera cookie file not found (tried: "
-            f"{tried}). Export your browser cookies for coursera.org in Netscape "
-            "format, or set COURSERA_COOKIE_FILE."
-        )
-    return None
+def _user_agent() -> str | None:
+    ua = os.getenv("LORE_USER_AGENT", "").strip()
+    return ua or None
+
+
+def _max_media_bytes() -> int:
+    try:
+        mb = int(os.getenv("LORE_MAX_MEDIA_MB", "2048"))
+    except ValueError:
+        mb = 2048
+    return max(1, mb) * 1024 * 1024
 
 
 def is_coursera_url(url: str) -> bool:
@@ -74,101 +84,144 @@ def is_coursera_url(url: str) -> bool:
     return host == "coursera.org" or host.endswith(".coursera.org")
 
 
-def download_file_chunks(url: str, output_path: Path) -> None:
-    """Download file in chunks with headers."""
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    with urllib.request.urlopen(req) as response, open(output_path, "wb") as out_file:
+def is_youtube_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == h or host.endswith("." + h) for h in ("youtube.com", "youtu.be", "youtube-nocookie.com"))
+
+
+def coursera_item_kind(url: str) -> str:
+    """'lecture' | 'reading' | 'other' from the URL path."""
+    path = urlparse(url).path.lower()
+    if "/lecture/" in path:
+        return "lecture"
+    if "/supplement/" in path or "/reading/" in path or "/ungradedWidget/".lower() in path:
+        return "reading"
+    return "other"
+
+
+def _check_download_url(url: str, *, allowed_suffixes: tuple[str, ...]) -> str:
+    """Only https to an allow-listed host may be downloaded from Python."""
+    p = urlparse(url)
+    host = (p.hostname or "").lower()
+    if p.scheme != "https" or not host:
+        raise ValueError(f"refusing non-https download URL: {url[:80]!r}")
+    if not any(host == s.lstrip(".") or host.endswith(s if s.startswith(".") else "." + s) for s in allowed_suffixes):
+        raise ValueError(f"refusing download from unexpected host: {host}")
+    return url
+
+
+def download_file_chunks(url: str, output_path: Path, *, timeout: float = 60.0, max_bytes: int | None = None) -> int:
+    """Stream a URL to disk with a size cap. Returns bytes written."""
+    max_bytes = max_bytes or _max_media_bytes()
+    headers = {"User-Agent": _user_agent()} if _user_agent() else {}
+    req = urllib.request.Request(url, headers=headers)
+    written = 0
+    with urllib.request.urlopen(req, timeout=timeout) as response, open(output_path, "wb") as out_file:
+        length = response.headers.get("Content-Length")
+        if length and int(length) > max_bytes:
+            raise ValueError(f"media too large ({int(length) // (1024 * 1024)} MB > cap)")
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
                 break
+            written += len(chunk)
+            if written > max_bytes:
+                raise ValueError("media exceeded size cap during download")
             out_file.write(chunk)
+    return written
 
 
 # ---------------------------------------------------------------------------
-# Coursera (authenticated page scrape)
+# Coursera (real browser reads the page; Python fetches only the CDN media)
 # ---------------------------------------------------------------------------
 
 
 def download_coursera_media(
     url: str,
-    cookie_file: str | None = None,
+    cookie_file: str | None = None,  # ignored: kept for call compatibility
     output_dir: str | None = None,
-    sub_lang: str = "en",
+    sub_lang: str = "auto",
     quality: str = "720p",
 ) -> dict[str, Any]:
-    """Download video and subtitles from a Coursera lecture URL using cookies."""
+    """Coursera lecture (video + subtitles) or reading (markdown + assets) via the logged-in browser."""
+    from . import cdp_fetch  # local import: websockets is optional
+
     out_dir = resolve_workspace_dir(output_dir)
-    cookie_path = resolve_cookie_file(cookie_file, required=True)
+    page = cdp_fetch.fetch_coursera_page(url, sub_lang=sub_lang)
+    slug_match = re.search(r"/(?:lecture|supplement|reading)/[^/]+/([^/?#]+)", url)
+    item_id = safe_id(slug_match.group(1) if slug_match else urlparse(url).path.rsplit("/", 1)[-1])
+    title = clean_text(page.get("title") or "").split("|")[0].strip() or item_id
+    clean_title = sanitize_filename(title)
 
-    cj = http.cookiejar.MozillaCookieJar(str(cookie_path))
-    cj.load(ignore_discard=True, ignore_expires=True)
-
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-
-    with opener.open(req) as resp:
-        html = resp.read().decode("utf-8", errors="ignore")
-
-    idx = html.find("window.App=")
-    if idx == -1:
-        raise ValueError(
-            "Could not find window.App state in page HTML. Ensure the URL is a lecture "
-            "page, you are enrolled, and the cookies file is fresh (re-export it if "
-            "Coursera logged you out)."
-        )
-
-    content = html[idx + len("window.App=") :]
-    data, _ = json.JSONDecoder().raw_decode(content)
-
-    stores = data.get("context", {}).get("dispatcher", {}).get("stores", {})
-    video_store = stores.get("VideoItemStore", {})
-    vdata = video_store.get("videoData", {})
-
-    slug_match = re.search(r"/lecture/[^/]+/([^/?#]+)", url)
-    if slug_match:
-        clean_title = sanitize_filename(slug_match.group(1).replace("-", "_"))
-    else:
-        title_match = re.search(r"<title>(.*?)</title>", html)
-        raw_title = title_match.group(1).split("|")[0].strip() if title_match else "coursera_lecture"
-        clean_title = sanitize_filename(raw_title)
-
-    by_res = vdata.get("sources", {}).get("byResolution", {})
-    if not by_res:
-        raise ValueError("No video sources found in lecture metadata (not enrolled, or not a video item).")
-
-    chosen_res = quality if quality in by_res else next(iter(by_res))
-    video_url = by_res[chosen_res].get("mp4VideoUrl") or by_res[chosen_res].get("webMVideoUrl")
-    if not video_url:
-        raise ValueError(f"No downloadable stream for quality {chosen_res}.")
-    ext = "mp4" if "mp4" in video_url else "webm"
-    video_dest = out_dir / f"{clean_title}.{ext}"
-
-    # Subtitles
-    subtitles = vdata.get("subtitles", {})
-    sub_url_part = subtitles.get(sub_lang) or subtitles.get("en")
-    sub_dest = None
-
-    if sub_url_part:
-        sub_url = "https://www.coursera.org" + sub_url_part if sub_url_part.startswith("/") else sub_url_part
-        sub_dest = out_dir / f"{clean_title}.srt"
-        sub_req = urllib.request.Request(sub_url, headers={"User-Agent": _USER_AGENT})
-        with opener.open(sub_req) as sub_resp, open(sub_dest, "wb") as f:
-            f.write(sub_resp.read())
-
-    download_file_chunks(video_url, video_dest)
-
-    return {
+    result: dict[str, Any] = {
         "source": "coursera",
+        "kind": page["kind"],
         "title": clean_title,
-        "video_path": str(video_dest.resolve()),
-        "srt_path": str(sub_dest.resolve()) if sub_dest else None,
-        "quality": chosen_res,
+        "item_id": item_id,
+        "language": page.get("subtitle_lang"),
+        "languages": page.get("languages") or [],
+        "assets": [],
+        "subtitle_error": page.get("subtitle_error"),
     }
+
+    if page["kind"] == "lecture":
+        vdata = page["video"] or {}
+        by_res = (vdata.get("sources") or {}).get("byResolution") or {}
+        if not by_res:
+            raise ValueError("No video sources found in lecture metadata (not enrolled, or not a video item).")
+        chosen_res = quality if quality in by_res else sorted(by_res, key=lambda r: int(re.sub(r"\D", "", r) or 0))[-1]
+        entry = by_res[chosen_res] or {}
+        video_url = entry.get("mp4VideoUrl") or entry.get("webMVideoUrl")
+        if not video_url:
+            raise ValueError(f"No downloadable stream for quality {chosen_res}.")
+        _check_download_url(video_url, allowed_suffixes=CDN_HOST_SUFFIXES)
+        ext = "mp4" if "mp4" in urlparse(video_url).path.lower() else "webm"
+        video_dest = out_dir / f"{clean_title}-{item_id}.{ext}"
+        download_file_chunks(video_url, video_dest)
+        srt_dest = None
+        if page.get("subtitle_text"):
+            text = clean_text(page["subtitle_text"])
+            if "WEBVTT" in text[:20]:
+                text = vtt_to_srt(text)
+            srt_dest = out_dir / f"{clean_title}-{item_id}.srt"
+            srt_dest.write_text(text, encoding="utf-8")
+        result.update({
+            "video_path": str(video_dest.resolve()),
+            "srt_path": str(srt_dest.resolve()) if srt_dest else None,
+            "quality": chosen_res,
+        })
+    elif page["kind"] == "reading":
+        from .html2md import html_to_markdown
+
+        md = clean_text(html_to_markdown(page.get("reading_html") or ""), strip_tags=False)
+        md_dest = out_dir / f"{clean_title}-{item_id}.reading.md"
+        md_dest.write_text(f"# {title}\n\nSource: {page.get('url') or url}\n\n{md}", encoding="utf-8")
+        result.update({"video_path": None, "srt_path": None, "reading_md": str(md_dest.resolve())})
+    else:
+        raise ValueError("Unsupported Coursera item (not a /lecture/ or /supplement/ page).")
+
+    # downloadable course files (slides, notebooks, PDFs) — only from Coursera CDNs, capped
+    assets_dir = out_dir / f"{clean_title}-{item_id}.assets"
+    for asset in page.get("assets") or []:
+        try:
+            a_url = _check_download_url(asset.get("url") or "", allowed_suffixes=CDN_HOST_SUFFIXES)
+        except ValueError:
+            continue
+        name = sanitize_filename(asset.get("name") or Path(urlparse(a_url).path).name or "asset")
+        if not Path(name).suffix:
+            name += Path(urlparse(a_url).path).suffix or ".bin"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        dest = assets_dir / name
+        try:
+            size = download_file_chunks(a_url, dest, max_bytes=200 * 1024 * 1024)
+            result["assets"].append({"name": name, "path": str(dest.resolve()), "bytes": size})
+        except Exception as exc:  # noqa: BLE001 - assets are optional
+            result.setdefault("asset_errors", []).append(f"{name}: {exc.__class__.__name__}")
+    return result
 
 
 # ---------------------------------------------------------------------------
-# Generic sites via yt-dlp
+# yt-dlp (YouTube and other sites)
 # ---------------------------------------------------------------------------
 
 _VTT_TIMESTAMP = re.compile(r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})|(\d{2}):(\d{2})\.(\d{3})")
@@ -177,7 +230,7 @@ _VTT_TIMESTAMP = re.compile(r"(\d{2}):(\d{2}):(\d{2})\.(\d{3})|(\d{2}):(\d{2})\.
 def vtt_to_srt(vtt_text: str) -> str:
     """Convert WebVTT subtitle text to SRT without needing ffmpeg."""
 
-    def fix_ts(match: "re.Match[str]") -> str:
+    def fix_ts(match: re.Match[str]) -> str:
         if match.group(1) is not None:
             h, m, s, ms = match.group(1), match.group(2), match.group(3), match.group(4)
         else:
@@ -193,13 +246,11 @@ def vtt_to_srt(vtt_text: str) -> str:
             lines = lines[1:]  # drop cue identifier
         if "-->" not in lines[0]:
             continue
-        # Keep only "start --> end"; VTT cue settings (position/align) are dropped.
         timing = _VTT_TIMESTAMP.sub(fix_ts, " ".join(lines[0].split()[:3]))
         text = "\n".join(re.sub(r"<[^>]+>", "", ln) for ln in lines[1:]).strip()
         if text:
             blocks.append((timing, text))
 
-    # Collapse consecutive duplicate cues that YouTube auto-captions produce.
     deduped = []
     for timing, text in blocks:
         if deduped and deduped[-1][1] == text:
@@ -209,47 +260,111 @@ def vtt_to_srt(vtt_text: str) -> str:
     return "\n".join(f"{i}\n{timing}\n{text}\n" for i, (timing, text) in enumerate(deduped, 1))
 
 
+def youtube_cookie_file(explicit: str | None, url: str) -> Path | None:
+    """The only way cookies reach yt-dlp: explicit path or LORE_YT_COOKIES, YouTube URLs only,
+    file must exist, be a regular file and be private (no group/other permissions on POSIX)."""
+    raw = explicit or os.getenv("LORE_YT_COOKIES")
+    if not raw:
+        return None
+    if not is_youtube_url(url):
+        return None
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        raise ValueError("LORE_YT_COOKIES / --cookies must be an absolute path")
+    if not p.is_file():
+        raise FileNotFoundError(f"cookie file not found: {p}")
+    if os.name != "nt":
+        mode = stat.S_IMODE(p.stat().st_mode)
+        if mode & 0o077:
+            raise PermissionError(f"cookie file {p} must be private (chmod 600), has {oct(mode)}")
+    return p
 
-def _politeness_opts() -> dict[str, Any]:
-    """yt-dlp options that make the downloader look less like a scraper.
 
-    Defaults: small random sleeps between requests/downloads and a rate limit.
-    Overrides via env:
-      LORE_USER_AGENT           - browser UA to send (match the machine's real browser)
-      LORE_YTDLP_OPTS_JSON      - JSON object merged last into the yt-dlp options, e.g.
-        {"extractor_args": {"youtubepot-bgutilhttp": {"base_url": ["http://127.0.0.1:4416"]}}}
-      LORE_NO_SLEEP=1           - disable the default sleeps (tests)
-    """
-    import json
-    import os
+def _daily_cap_check(url: str) -> None:
+    """Count YouTube downloads per UTC day; raise when the cap is reached."""
+    if not is_youtube_url(url):
+        return
+    try:
+        cap = int(os.getenv("LORE_YT_DAILY_MAX", "12"))
+    except ValueError:
+        cap = 12
+    if cap <= 0:
+        return
+    f = _state_dir() / "yt-daily.json"
+    today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        data = {}
+    count = int(data.get(today, 0))
+    if count >= cap:
+        raise RuntimeError(f"YT_DAILY_CAP: {count}/{cap} YouTube downloads already made today (UTC); try tomorrow")
+    data = {today: count + 1}
+    f.write_text(json.dumps(data), encoding="utf-8")
 
-    opts: dict[str, Any] = {}
-    if os.environ.get("LORE_NO_SLEEP") != "1":
-        opts.update({
-            "sleep_interval_requests": 1.0,
-            "sleep_interval": 2.0,
-            "max_sleep_interval": 6.0,
-            "ratelimit": 5_000_000,  # bytes/s
-            "retries": 3,
-        })
-    ua = os.environ.get("LORE_USER_AGENT")
+
+def ytdlp_options(url: str, *, cookie_file: Path | None) -> dict[str, Any]:
+    """Allow-listed yt-dlp options. Nothing here can run a program or redirect files."""
+    opts: dict[str, Any] = {
+        "socket_timeout": 30,
+        "retries": 3,
+        "fragment_retries": 3,
+        "noplaylist": True,
+        "max_filesize": _max_media_bytes(),
+    }
+    if os.getenv("LORE_NO_SLEEP") != "1":
+        opts.update({"sleep_interval_requests": 1.0, "sleep_interval": 2.0, "max_sleep_interval": 6.0,
+                     "ratelimit": 5_000_000})
+    ua = _user_agent()
     if ua:
         opts["http_headers"] = {"User-Agent": ua}
-    raw = os.environ.get("LORE_YTDLP_OPTS_JSON")
-    if raw:
+    if cookie_file is not None:
+        opts["cookiefile"] = str(cookie_file)
+    extractor_args: dict[str, dict[str, list[str]]] = {}
+    pot = os.getenv("LORE_POT_BASE_URL", "").strip()
+    if pot and re.match(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?/?$", pot):
+        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot.rstrip("/")]}
+    clients = os.getenv("LORE_YT_PLAYER_CLIENTS", "").strip()
+    if clients and _PLAYER_CLIENTS_RE.match(clients):
+        extractor_args["youtube"] = {"player_client": clients.split(",")}
+    if extractor_args:
+        opts["extractor_args"] = extractor_args
+    imp = os.getenv("LORE_IMPERSONATE", "").strip()
+    if imp and _IMPERSONATE_RE.match(imp):
         try:
-            extra = json.loads(raw)
-            if isinstance(extra, dict):
-                opts.update(extra)
-        except json.JSONDecodeError:
+            from yt_dlp.networking.impersonate import ImpersonateTarget
+
+            opts["impersonate"] = ImpersonateTarget.from_str(imp)
+        except Exception:  # noqa: BLE001 - curl_cffi missing or bad target: run without
             pass
     return opts
+
+
+def pick_youtube_language(info: dict[str, Any], preferred: str = "auto") -> list[str]:
+    """Subtitle languages to request: explicit > original language (info['language'] or '<x>-orig')
+    > first manual subtitle > 'en'. Returns the list yt-dlp expects (original first, '-orig' variant next)."""
+    manual = list((info.get("subtitles") or {}).keys())
+    auto = list((info.get("automatic_captions") or {}).keys())
+    if preferred and preferred.lower() != "auto":
+        base = preferred.split("-")[0]
+        return [preferred, f"{base}-orig", base]
+    orig = info.get("language")
+    if not orig:
+        for key in auto:
+            if key.endswith("-orig"):
+                orig = key[: -len("-orig")]
+                break
+    if not orig and manual:
+        orig = manual[0]
+    orig = (orig or "en").split("-")[0]
+    return [orig, f"{orig}-orig"]
+
 
 def download_with_ytdlp(
     url: str,
     output_dir: str | None = None,
     cookie_file: str | None = None,
-    sub_lang: str = "en",
+    sub_lang: str = "auto",
     quality: str = "720p",
 ) -> dict[str, Any]:
     """Download a video plus subtitles from any yt-dlp supported site."""
@@ -263,13 +378,13 @@ def download_with_ytdlp(
     out_dir = resolve_workspace_dir(output_dir)
     height = int(re.sub(r"\D", "", quality) or 720)
     has_ffmpeg = shutil.which("ffmpeg") is not None
-    # Without ffmpeg yt-dlp cannot merge separate video/audio streams, so prefer
-    # a single progressive MP4 in that case.
     fmt = (
         f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}]/best"
         if has_ffmpeg
         else f"best[height<={height}][ext=mp4]/best[height<={height}]/best"
     )
+    cookies = youtube_cookie_file(cookie_file, url)
+    _daily_cap_check(url)
 
     base_opts: dict[str, Any] = {
         "outtmpl": str(out_dir / "%(title).120B-%(id)s.%(ext)s"),
@@ -277,16 +392,9 @@ def download_with_ytdlp(
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,  # keep stdout clean: lore.py's last line must be the JSON summary
-        "noplaylist": True,
+        **ytdlp_options(url, cookie_file=cookies),
     }
-    cookie_path = resolve_cookie_file(cookie_file)
-    if cookie_path is not None:
-        base_opts["cookiefile"] = str(cookie_path)
-    base_opts.update(_politeness_opts())
 
-    # Pass 1: the video itself. Subtitles are deliberately NOT requested here so
-    # a subtitle hiccup (YouTube rate-limits the auto-translated tracks) can
-    # never take the whole download down with it.
     video_opts = {**base_opts, "format": fmt}
     if has_ffmpeg:
         video_opts["merge_output_format"] = "mp4"
@@ -300,24 +408,28 @@ def download_with_ytdlp(
             if merged.exists():
                 video_path = merged
 
-    # Pass 2: one subtitle track (manual if present, else auto-generated) for the
-    # requested language only. Best effort: a failure leaves srt_path = None.
+    langs = pick_youtube_language(info, sub_lang)
     subtitle_error: str | None = None
     sub_opts = {
         **base_opts,
         "skip_download": True,
         "writesubtitles": True,
         "writeautomaticsub": True,
-        "subtitleslangs": [sub_lang],
+        "subtitleslangs": langs,
         "subtitlesformat": "srt/vtt/best",
     }
     try:
         with yt_dlp.YoutubeDL(sub_opts) as ydl:
             ydl.process_ie_result(dict(info), download=True)
     except Exception as exc:  # noqa: BLE001 - subtitles are optional
-        subtitle_error = str(exc).splitlines()[-1] if str(exc) else exc.__class__.__name__
+        subtitle_error = clean_text(str(exc).splitlines()[-1] if str(exc) else exc.__class__.__name__)[:200]
 
-    # Locate the subtitle file yt-dlp wrote next to the video and normalise to .srt.
+    if cookies is not None and os.name != "nt":
+        try:
+            os.chmod(cookies, 0o600)  # yt-dlp rewrites the jar; keep it private
+        except OSError:
+            pass
+
     srt_path: Path | None = None
     stem = video_path.with_suffix("")
     for candidate in sorted(out_dir.glob(f"{stem.name}*.srt")) + sorted(out_dir.glob(f"{stem.name}*.vtt")):
@@ -325,20 +437,22 @@ def download_with_ytdlp(
             srt_path = candidate
             break
         srt_path = stem.with_suffix(".srt")
-        srt_path.write_text(
-            vtt_to_srt(candidate.read_text(encoding="utf-8", errors="ignore")), encoding="utf-8"
-        )
+        srt_path.write_text(vtt_to_srt(candidate.read_text(encoding="utf-8", errors="ignore")), encoding="utf-8")
         candidate.unlink(missing_ok=True)
         break
 
     return {
         "source": "yt-dlp",
-        "title": info.get("title") or video_path.stem,
+        "kind": "lecture",
+        "title": sanitize_filename(clean_text(info.get("title") or video_path.stem)),
+        "item_id": safe_id(str(info.get("id") or video_path.stem)),
         "video_path": str(video_path.resolve()),
         "srt_path": str(srt_path.resolve()) if srt_path else None,
         "quality": f"{info.get('height') or height}p",
         "duration_seconds": info.get("duration"),
+        "language": langs[0],
         "subtitle_error": subtitle_error,
+        "used_cookies": cookies is not None,
     }
 
 
@@ -351,16 +465,12 @@ def download_lecture(
     url: str,
     output_dir: str | None = None,
     cookie_file: str | None = None,
-    sub_lang: str = "en",
+    sub_lang: str = "auto",
     quality: str = "720p",
 ) -> dict[str, Any]:
-    """Download a lecture from any URL: Coursera via cookies, everything else via yt-dlp."""
+    """Download a lecture from any URL: Coursera via the browser, everything else via yt-dlp."""
     if not re.match(r"^https?://", url or ""):
         raise ValueError(f"Expected an http(s) URL, got: {url!r}")
     if is_coursera_url(url):
-        return download_coursera_media(
-            url, cookie_file=cookie_file, output_dir=output_dir, sub_lang=sub_lang, quality=quality
-        )
-    return download_with_ytdlp(
-        url, output_dir=output_dir, cookie_file=cookie_file, sub_lang=sub_lang, quality=quality
-    )
+        return download_coursera_media(url, cookie_file=cookie_file, output_dir=output_dir, sub_lang=sub_lang, quality=quality)
+    return download_with_ytdlp(url, output_dir=output_dir, cookie_file=cookie_file, sub_lang=sub_lang, quality=quality)

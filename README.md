@@ -29,7 +29,7 @@ the skill in each agent.
 ## Install
 
 ```bash
-git clone https://github.com/Slydite/lore-engine.git
+git clone https://github.com/FirstWari/lore-engine.git
 cd lore-engine
 uv sync            # or: python -m venv .venv && source .venv/bin/activate && pip install -e .
 # Linux extras (optional): sudo apt-get install -y ffmpeg fonts-dejavu-core
