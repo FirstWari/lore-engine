@@ -246,6 +246,11 @@ def fetch_coursera_page(url: str, *, sub_lang: str | None = "auto", timeout: flo
           // readings: main content
           const main = document.querySelector('[data-testid="cds-content"], .rc-CML, [role="main"], main');
           out.readingHtml = main ? main.innerHTML.slice(0, 3_000_000) : null;
+          // external tools (ungraded labs): iframe targets and launch links, appended as a source list
+          const ext = [];
+          for (const f of document.querySelectorAll('iframe[src]')) if (/^https?:/.test(f.src)) ext.push(f.src);
+          for (const a of document.querySelectorAll('a[href]')) if (/launch|open tool|start lab|labs\.|skills\.network/i.test((a.textContent||'') + ' ' + a.href)) ext.push(a.href);
+          out.externalLinks = ext.filter((v,i,a)=>a.indexOf(v)===i).slice(0, 10);
           // downloadable assets referenced in page state or DOM (pdf/pptx/zip/ipynb/docx)
           const assets = [];
           for (const a of document.querySelectorAll('a[href]')) {
@@ -265,6 +270,7 @@ def fetch_coursera_page(url: str, *, sub_lang: str | None = "auto", timeout: flo
             "kind": kind, "title": data.get("title") or "", "url": data.get("url") or url,
             "video": data.get("video"), "lang_hints": data.get("langHints") or [],
             "reading_html": data.get("readingHtml") if kind == "reading" else None,
+            "external_links": data.get("externalLinks") or [],
             "assets": data.get("assets") or [], "store_names": data.get("storeNames") or [],
             "subtitle_text": None, "subtitle_lang": None, "languages": [],
         }

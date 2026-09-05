@@ -25,6 +25,7 @@ class TestRouting:
         assert downloader.coursera_item_kind("https://www.coursera.org/learn/c/lecture/i/t") == "lecture"
         assert downloader.coursera_item_kind("https://www.coursera.org/learn/c/supplement/i/t") == "reading"
         assert downloader.coursera_item_kind("https://www.coursera.org/learn/c/quiz/i/t") == "other"
+        assert downloader.coursera_item_kind("https://www.coursera.org/learn/c/ungradedLti/i/t") == "reading"
 
     def test_download_lecture_routes_coursera(self, monkeypatch):
         calls = {}

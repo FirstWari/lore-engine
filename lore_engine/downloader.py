@@ -94,8 +94,8 @@ def coursera_item_kind(url: str) -> str:
     path = urlparse(url).path.lower()
     if "/lecture/" in path:
         return "lecture"
-    if "/supplement/" in path or "/reading/" in path or "/ungradedWidget/".lower() in path:
-        return "reading"
+    if any(k in path for k in ("/supplement/", "/reading/", "/ungradedwidget/", "/ungradedlti/", "/ungradedlab/", "/discussionprompt/")):
+        return "reading"  # text-like items: captured as reading.md (labs: description + external link)
     return "other"
 
 
@@ -155,7 +155,7 @@ def download_coursera_media(
         raise cdp_fetch.CourseraPageError("lecture page has no video data (not enrolled, or page format changed)")
     if url_kind == "reading":
         page["kind"] = "reading" if page.get("reading_html") else "other"
-    slug_match = re.search(r"/(?:lecture|supplement|reading)/[^/]+/([^/?#]+)", url)
+    slug_match = re.search(r"/(?:lecture|supplement|reading|ungradedWidget|ungradedLti|ungradedLab|discussionPrompt)/[^/]+/([^/?#]+)", url, re.I)
     item_id = safe_id(slug_match.group(1) if slug_match else urlparse(url).path.rsplit("/", 1)[-1])
     title = clean_text(page.get("title") or "").split("|")[0].strip() or item_id
     clean_title = sanitize_filename(title)
@@ -202,7 +202,9 @@ def download_coursera_media(
 
         md = clean_text(html_to_markdown(page.get("reading_html") or ""), strip_tags=False)
         md_dest = out_dir / f"{clean_title}-{item_id}.reading.md"
-        md_dest.write_text(f"# {title}\n\nSource: {page.get('url') or url}\n\n{md}", encoding="utf-8")
+        ext = page.get("external_links") or []
+        ext_md = ("\n\n## External tools / labs\n" + "\n".join(f"- {u}" for u in ext) + "\n") if ext else ""
+        md_dest.write_text(f"# {title}\n\nSource: {page.get('url') or url}\n\n{md}{ext_md}", encoding="utf-8")
         result.update({"video_path": None, "srt_path": None, "reading_md": str(md_dest.resolve())})
     else:
         raise ValueError("Unsupported Coursera item (not a /lecture/ or /supplement/ page).")
