@@ -39,9 +39,13 @@ def cdp_url() -> str:
     return os.environ.get("LORE_CDP_URL", "http://127.0.0.1:9222").rstrip("/")
 
 
+# The CDP endpoint is local: never send it through HTTP(S)_PROXY (WARP is for the browser, not for us).
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _http_json(url: str, method: str = "GET", timeout: float = 10.0) -> Any:
     req = urllib.request.Request(url, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # local CDP endpoint only
+    with _LOCAL_OPENER.open(req, timeout=timeout) as resp:  # local CDP endpoint only
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -53,7 +57,10 @@ class _Tab:
             from websockets.sync.client import connect  # type: ignore
         except ImportError as exc:  # pragma: no cover
             raise CdpError("websockets is required: pip install 'lore-engine[browser]'") from exc
-        self.ws = connect(ws_url, max_size=64 * 1024 * 1024, open_timeout=timeout)
+        try:
+            self.ws = connect(ws_url, max_size=64 * 1024 * 1024, open_timeout=timeout, proxy=None)
+        except TypeError:  # older websockets without the proxy parameter
+            self.ws = connect(ws_url, max_size=64 * 1024 * 1024, open_timeout=timeout)
         self.timeout = timeout
         self._id = 0
         self._ctx: int | None = None
@@ -123,7 +130,7 @@ def open_page(url: str, *, settle_sec: float = 3.0, timeout: float = 60.0) -> tu
 
 def close_target(target_id: str) -> None:
     try:
-        urllib.request.urlopen(f"{cdp_url()}/json/close/{target_id}", timeout=5).read()
+        _LOCAL_OPENER.open(f"{cdp_url()}/json/close/{target_id}", timeout=5).read()
     except Exception:  # noqa: BLE001
         pass
 
